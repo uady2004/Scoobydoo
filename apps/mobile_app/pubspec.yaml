@@ -1,0 +1,91 @@
+name: tiktok_clone
+description: TikTok clone mobile app — Flutter
+
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Networking
+  dio: ^5.4.0
+  web_socket_channel: ^3.0.1
+
+  # State management
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+  provider: ^6.1.2
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.5
+
+  # Routing
+  go_router: ^14.2.0
+
+  # Media / streaming
+  video_player: ^2.8.6
+  image_picker: ^1.1.2
+  camera: ^0.11.0
+  cached_network_image: ^3.4.1
+
+  # Storage / prefs
+  shared_preferences: ^2.3.2
+  flutter_secure_storage: ^9.2.2
+
+  # Push notifications & Firebase
+  firebase_core: ^3.3.0
+  firebase_messaging: ^15.1.0
+  flutter_local_notifications: ^17.2.2
+
+  # Deep links
+  app_links: ^6.1.1
+
+  # Connectivity
+  connectivity_plus: ^6.0.5
+
+  # UI helpers
+  google_fonts: ^6.2.1
+  shimmer: ^3.0.0
+  lottie: ^3.1.2
+  cupertino_icons: ^1.0.8
+  badges: ^3.1.2
+  percent_indicator: ^4.2.3
+  timeago: ^3.6.1
+  #fluttertoast: ^8.2.8
+
+  # Functional programming
+  fpdart: ^1.1.0
+
+  # Social auth
+  google_sign_in: ^6.2.1
+  sign_in_with_apple: ^6.1.2
+
+  # Sharing
+  share_plus: ^12.0.2
+
+  # Utils
+  uuid: ^4.4.2
+  intl: ^0.19.0
+  logger: ^2.4.0
+  path: ^1.9.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  mockito: ^5.4.4
+  build_runner: ^2.4.12
+  riverpod_generator: ^2.4.3
+  custom_lint: ^0.7.6
+  riverpod_lint: ^2.6.4
+
+flutter:
+  uses-material-design: true
+  #assets:
+   # - assets/images/
+   # - assets/animations/
+    #- assets/icons/
+

@@ -1,0 +1,314 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 1,
+    "refresh_interval": "10s",
+    "max_result_window": 50000,
+    "analysis": {
+      "analyzer": {
+        "sound_title_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "word_delimiter_graph",
+            "trim"
+          ]
+        },
+        "artist_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "word_delimiter_graph",
+            "trim"
+          ]
+        },
+        "autocomplete_analyzer": {
+          "type": "custom",
+          "tokenizer": "sound_ngram_tokenizer",
+          "filter": ["lowercase", "asciifolding"]
+        },
+        "autocomplete_search_analyzer": {
+          "type": "custom",
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding"]
+        },
+        "lyrics_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "stop",
+            "snowball"
+          ]
+        }
+      },
+      "tokenizer": {
+        "sound_ngram_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 25,
+          "token_chars": ["letter", "digit", "punctuation"]
+        }
+      },
+      "filter": {
+        "word_delimiter_graph": {
+          "type": "word_delimiter_graph",
+          "preserve_original": true,
+          "split_on_numerics": false
+        }
+      },
+      "normalizer": {
+        "lowercase_normalizer": {
+          "type": "custom",
+          "filter": ["lowercase", "asciifolding"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "_source": {
+      "enabled": true
+    },
+    "properties": {
+      "sound_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "title": {
+        "type": "text",
+        "analyzer": "sound_title_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase_normalizer",
+            "ignore_above": 512
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          },
+          "suggest": {
+            "type": "completion",
+            "analyzer": "simple",
+            "search_analyzer": "simple",
+            "contexts": [
+              {
+                "name": "genre",
+                "type": "category"
+              }
+            ]
+          }
+        }
+      },
+      "artist": {
+        "type": "text",
+        "analyzer": "artist_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase_normalizer",
+            "ignore_above": 256
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          }
+        }
+      },
+      "album": {
+        "type": "text",
+        "analyzer": "sound_title_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase_normalizer",
+            "ignore_above": 256
+          }
+        }
+      },
+      "lyrics_snippet": {
+        "type": "text",
+        "analyzer": "lyrics_analyzer"
+      },
+      "duration": {
+        "type": "float",
+        "doc_values": true,
+        "meta": {
+          "unit": "seconds"
+        }
+      },
+      "bpm": {
+        "type": "float",
+        "doc_values": true
+      },
+      "key": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "mode": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "genre": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "sub_genre": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "mood_tags": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "audio_url": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "preview_url": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "cover_url": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "usage_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "video_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "favorite_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "trending_score": {
+        "type": "float",
+        "doc_values": true
+      },
+      "trending": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "velocity": {
+        "type": "float",
+        "doc_values": true,
+        "meta": {
+          "description": "Rate of usage growth per hour"
+        }
+      },
+      "is_original": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "original_author_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "original_video_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "source_type": {
+        "type": "keyword",
+        "doc_values": true,
+        "meta": {
+          "description": "original | licensed | user_uploaded"
+        }
+      },
+      "license_type": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "is_licensed": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "is_available": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "is_explicit": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "available_countries": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "restricted_countries": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "language": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "release_date": {
+        "type": "date",
+        "format": "strict_date||strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "created_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "updated_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "audio_features": {
+        "type": "object",
+        "dynamic": false,
+        "properties": {
+          "energy": { "type": "float" },
+          "danceability": { "type": "float" },
+          "valence": { "type": "float" },
+          "acousticness": { "type": "float" },
+          "instrumentalness": { "type": "float" },
+          "liveness": { "type": "float" },
+          "speechiness": { "type": "float" },
+          "loudness": { "type": "float" }
+        }
+      },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 256,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      },
+      "audio_embedding": {
+        "type": "dense_vector",
+        "dims": 512,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      }
+    }
+  }
+}

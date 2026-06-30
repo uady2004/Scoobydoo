@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/Admin/go/pkg/mod/cache/download/github.com/eapache/go-resizable-array/**)",
+      "Read(//c/Users/Admin/go/pkg/mod/cache/download/github.com/IBM/sarama/**)",
+      "Bash(find C:/Users/Admin/go/pkg/mod/cache/download -name \"*.zip\" 2>/dev/null | grep \"eapache\\\\|sarama\\\\|IBM\" | head -5)",
+      "Read(//c/Users/Admin/go/pkg/mod/cache/download/**)",
+      "Bash(GOWORK=off go mod tidy)",
+      "Bash(# auth-service has v0.0.0-20240730163845-b1a4a4c79e80 - fix to b1a4ccb954bf \\(the cached one\\) *)"
+    ],
+    "additionalDirectories": [
+      "c:\\tiktok-clone\\services\\auth-service"
+    ]
+  }
+}

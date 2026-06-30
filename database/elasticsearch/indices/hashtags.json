@@ -1,0 +1,214 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 1,
+    "refresh_interval": "10s",
+    "max_result_window": 50000,
+    "analysis": {
+      "analyzer": {
+        "hashtag_analyzer": {
+          "type": "custom",
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding", "trim"]
+        },
+        "hashtag_search_analyzer": {
+          "type": "custom",
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding", "trim"]
+        },
+        "hashtag_autocomplete_analyzer": {
+          "type": "custom",
+          "tokenizer": "hashtag_ngram_tokenizer",
+          "filter": ["lowercase", "asciifolding"]
+        },
+        "tag_text_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "stop",
+            "trim"
+          ]
+        }
+      },
+      "tokenizer": {
+        "hashtag_ngram_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 1,
+          "max_gram": 30,
+          "token_chars": ["letter", "digit"]
+        }
+      },
+      "normalizer": {
+        "hashtag_normalizer": {
+          "type": "custom",
+          "filter": ["lowercase", "asciifolding", "trim"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "_source": {
+      "enabled": true
+    },
+    "properties": {
+      "hashtag_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "tag": {
+        "type": "text",
+        "analyzer": "hashtag_analyzer",
+        "search_analyzer": "hashtag_search_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "hashtag_normalizer",
+            "doc_values": true
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "hashtag_autocomplete_analyzer",
+            "search_analyzer": "hashtag_search_analyzer"
+          },
+          "suggest": {
+            "type": "completion",
+            "analyzer": "simple",
+            "search_analyzer": "simple",
+            "contexts": [
+              {
+                "name": "category",
+                "type": "category"
+              }
+            ]
+          }
+        }
+      },
+      "display_tag": {
+        "type": "keyword",
+        "doc_values": true,
+        "ignore_above": 256
+      },
+      "description": {
+        "type": "text",
+        "analyzer": "tag_text_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 1024
+          }
+        }
+      },
+      "post_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "video_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "view_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "trending_score": {
+        "type": "float",
+        "doc_values": true
+      },
+      "velocity": {
+        "type": "float",
+        "doc_values": true,
+        "meta": {
+          "description": "Rate of change in post count per hour"
+        }
+      },
+      "category": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "sub_categories": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "related_tags": {
+        "type": "keyword",
+        "normalizer": "hashtag_normalizer",
+        "doc_values": true
+      },
+      "is_trending": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "is_featured": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "is_banned": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "country_trending": {
+        "type": "object",
+        "dynamic": true,
+        "properties": {}
+      },
+      "trend_history": {
+        "type": "nested",
+        "dynamic": false,
+        "properties": {
+          "timestamp": {
+            "type": "date",
+            "format": "strict_date_optional_time||epoch_millis"
+          },
+          "score": { "type": "float" },
+          "rank": { "type": "integer" }
+        }
+      },
+      "peak_trending_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "cover_video_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "cover_image_url": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "language": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "countries": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "created_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "updated_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 256,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,239 @@
+{
+  "settings": {
+    "number_of_shards": 3,
+    "number_of_replicas": 1,
+    "refresh_interval": "1s",
+    "max_result_window": 50000,
+    "analysis": {
+      "analyzer": {
+        "username_analyzer": {
+          "type": "custom",
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding"]
+        },
+        "autocomplete_analyzer": {
+          "type": "custom",
+          "tokenizer": "autocomplete_tokenizer",
+          "filter": ["lowercase", "asciifolding"]
+        },
+        "autocomplete_search_analyzer": {
+          "type": "custom",
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding"]
+        },
+        "display_name_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "word_delimiter_graph",
+            "trim"
+          ]
+        },
+        "bio_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "stop",
+            "snowball"
+          ]
+        }
+      },
+      "tokenizer": {
+        "autocomplete_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 1,
+          "max_gram": 20,
+          "token_chars": ["letter", "digit", "punctuation"]
+        }
+      },
+      "filter": {
+        "word_delimiter_graph": {
+          "type": "word_delimiter_graph",
+          "preserve_original": true,
+          "split_on_numerics": false,
+          "split_on_case_change": true
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "_source": {
+      "enabled": true
+    },
+    "properties": {
+      "user_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "username": {
+        "type": "text",
+        "analyzer": "username_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase"
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          },
+          "suggest": {
+            "type": "completion",
+            "analyzer": "simple",
+            "search_analyzer": "simple",
+            "preserve_separators": true,
+            "preserve_position_increments": true,
+            "max_input_length": 50
+          }
+        }
+      },
+      "display_name": {
+        "type": "text",
+        "analyzer": "display_name_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase",
+            "ignore_above": 256
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          }
+        }
+      },
+      "bio": {
+        "type": "text",
+        "analyzer": "bio_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 512
+          }
+        }
+      },
+      "email": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "phone": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "avatar_url": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "verified": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "account_type": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "follower_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "following_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "video_count": {
+        "type": "integer",
+        "doc_values": true
+      },
+      "like_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "country_code": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "language": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "privacy_setting": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "is_active": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "is_banned": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "profile_categories": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "interests": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "created_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "last_active_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "profile_score": {
+        "type": "float",
+        "doc_values": true
+      },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 768,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      },
+      "content_embedding": {
+        "type": "dense_vector",
+        "dims": 256,
+        "index": true,
+        "similarity": "dot_product",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      },
+      "social_links": {
+        "type": "object",
+        "dynamic": false,
+        "properties": {
+          "platform": { "type": "keyword" },
+          "url": { "type": "keyword", "index": false }
+        }
+      },
+      "join_source": {
+        "type": "keyword",
+        "doc_values": true
+      }
+    }
+  }
+}

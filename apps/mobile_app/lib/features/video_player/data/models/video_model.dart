@@ -1,0 +1,73 @@
+import 'package:tiktok_clone/features/video_player/domain/entities/video_entity.dart';
+
+class VideoModel extends VideoEntity {
+  const VideoModel({
+    required super.id,
+    required super.creatorId,
+    required super.creatorUsername,
+    required super.creatorAvatarUrl,
+    required super.videoUrl,
+    super.hlsUrl,
+    required super.thumbnailUrl,
+    required super.description,
+    required super.likeCount,
+    required super.commentCount,
+    required super.shareCount,
+    required super.viewCount,
+    required super.isLiked,
+    required super.isBookmarked,
+    required super.isFollowing,
+    super.soundTitle,
+    super.soundId,
+    super.duration,
+    required super.createdAt,
+    super.tags,
+  });
+
+  factory VideoModel.fromJson(Map<String, dynamic> j) => VideoModel(
+        id: j['id'] as String,
+        creatorId: j['creator_id'] as String? ?? '',
+        creatorUsername: j['creator_username'] as String? ?? '',
+        creatorAvatarUrl: j['creator_avatar_url'] as String? ?? '',
+        videoUrl: j['video_url'] as String? ?? '',
+        hlsUrl: j['hls_url'] as String?,
+        thumbnailUrl: j['thumbnail_url'] as String? ?? '',
+        description: j['description'] as String? ?? '',
+        likeCount: (j['like_count'] as num? ?? 0).toInt(),
+        commentCount: (j['comment_count'] as num? ?? 0).toInt(),
+        shareCount: (j['share_count'] as num? ?? 0).toInt(),
+        viewCount: (j['view_count'] as num? ?? 0).toInt(),
+        isLiked: j['is_liked'] as bool? ?? false,
+        isBookmarked: j['is_bookmarked'] as bool? ?? false,
+        isFollowing: j['is_following'] as bool? ?? false,
+        soundTitle: j['sound_title'] as String?,
+        soundId: j['sound_id'] as String?,
+        duration: (j['duration'] as num?)?.toInt(),
+        createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ??
+            DateTime.now(),
+        tags: (j['tags'] as List?)?.cast<String>() ?? [],
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'creator_id': creatorId,
+        'creator_username': creatorUsername,
+        'creator_avatar_url': creatorAvatarUrl,
+        'video_url': videoUrl,
+        'hls_url': hlsUrl,
+        'thumbnail_url': thumbnailUrl,
+        'description': description,
+        'like_count': likeCount,
+        'comment_count': commentCount,
+        'share_count': shareCount,
+        'view_count': viewCount,
+        'is_liked': isLiked,
+        'is_bookmarked': isBookmarked,
+        'is_following': isFollowing,
+        'sound_title': soundTitle,
+        'sound_id': soundId,
+        'duration': duration,
+        'created_at': createdAt.toIso8601String(),
+        'tags': tags,
+      };
+}

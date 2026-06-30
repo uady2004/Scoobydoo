@@ -1,0 +1,40 @@
+// Go workspace file for the TikTok-clone monorepo.
+//
+// This workspace ties together all service modules so that local changes to
+// shared packages are immediately reflected across every service without
+// publishing to a module proxy.
+//
+// Usage:
+//   go work sync          — synchronise go.work.sum after adding dependencies
+//   go build ./...        — build every module in the workspace
+//   go test ./...         — run all tests across all modules
+//   go work use ./path    — add a new module to the workspace
+
+go 1.26
+
+use (
+	./backend/api-gateway
+	./backend/comment-service
+	./backend/like-service
+	./database/redis
+	./services/admin-service
+	./services/ads-service
+	./services/analytics-service
+	./services/auth-service
+	./services/ecommerce-service
+	./services/feed-service
+	./services/interaction-service
+	./services/livestream-service
+	./services/messaging-service
+	./services/moderation-service
+	./services/notification-service
+	./services/payment-service
+	./services/recommendation-service
+	./services/reporting-service
+	./services/search-service
+	./services/social-graph-service
+	./services/user-service
+	./services/video-service
+	./services/wallet-service
+	./shared
+)

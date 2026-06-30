@@ -1,0 +1,15 @@
+[
+  {
+    "id": 1,
+    "username": "testuser",
+    "email": "test@test.com",
+    "password": "test123",
+    "display_name": "Test User",
+    "avatar_url": "",
+    "bio": "Test account",
+    "followers": 0,
+    "following": 0,
+    "likes": 0,
+    "is_verified": false
+  }
+]

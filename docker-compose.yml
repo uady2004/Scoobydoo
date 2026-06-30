@@ -1,0 +1,606 @@
+﻿version: "3.9"
+
+networks:
+  tiktok_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  zookeeper_data:
+  elasticsearch_data:
+  minio_data:
+  hls_data:
+  clickhouse_data:
+
+services:
+
+  # â”€â”€ Infrastructure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: tiktok_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tiktok
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/postgres:/docker-entrypoint-initdb.d:ro
+    networks: [tiktok_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: tiktok_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks: [tiktok_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: tiktok_zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks: [tiktok_net]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: tiktok_kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "29092:29092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks: [tiktok_net]
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    container_name: tiktok_elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks: [tiktok_net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -qv red"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: tiktok_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks: [tiktok_net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: tiktok_clickhouse
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+      - "9009:9009"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./database/clickhouse/schemas:/docker-entrypoint-initdb.d:ro
+    networks: [tiktok_net]
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: tiktok_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - hls_data:/var/hls:ro
+    depends_on: [api-gateway]
+    networks: [tiktok_net]
+
+  # â”€â”€ API Gateway â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # Uses TIKTOK_ env prefix (viper SetEnvPrefix).
+  # Service addresses override the built-in defaults.
+
+  api-gateway:
+    build:
+      context: ./backend/api-gateway
+      dockerfile: Dockerfile
+    container_name: tiktok_api_gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8080"
+    environment:
+      TIKTOK_SERVER_PORT: 8080
+      TIKTOK_SERVER_MODE: release
+      TIKTOK_SERVICES_AUTH_ADDRESSES: "http://auth-service:8081"
+      TIKTOK_SERVICES_USER_ADDRESSES: "http://user-service:8082"
+      TIKTOK_SERVICES_VIDEO_ADDRESSES: "http://video-service:8086"
+      TIKTOK_SERVICES_FEED_ADDRESSES: "http://feed-service:8084"
+      TIKTOK_SERVICES_COMMENT_ADDRESSES: "http://interaction-service:8083"
+      TIKTOK_SERVICES_LIKE_ADDRESSES: "http://interaction-service:8083"
+      TIKTOK_SERVICES_FOLLOW_ADDRESSES: "http://social-graph-service:8094"
+      TIKTOK_SERVICES_SEARCH_ADDRESSES: "http://search-service:8087"
+      TIKTOK_SERVICES_NOTIFICATION_ADDRESSES: "http://notification-service:8088"
+      TIKTOK_SERVICES_ANALYTICS_ADDRESSES: "http://analytics-service:8095"
+      TIKTOK_SERVICES_LIVE_ADDRESSES: "http://livestream-service:8085"
+      TIKTOK_SERVICES_INTERACTION_ADDRESSES: "http://interaction-service:8083"
+      TIKTOK_SERVICES_REPORTING_ADDRESSES: "http://reporting-service:8092"
+      TIKTOK_SERVICES_WALLET_ADDRESSES: "http://wallet-service:8089"
+      TIKTOK_SERVICES_MESSAGING_ADDRESSES: "http://messaging-service:8093"
+      TIKTOK_SERVICES_ECOMMERCE_ADDRESSES: "http://ecommerce-service:8091"
+      TIKTOK_REDIS_ADDRESSES: "redis:6379"
+      TIKTOK_KAFKA_BROKERS: "kafka:9092"
+      TIKTOK_RATE_LIMIT_USER_REQUESTS_PER_MINUTE: 100
+      TIKTOK_RATE_LIMIT_IP_REQUESTS_PER_MINUTE: 1000
+      # Gateway uses asymmetric JWT verification. Leave empty in dev to allow
+      # the gateway to start (it prints a warning but does not fail).
+      TIKTOK_JWT_PUBLIC_KEY_PEM: "${JWT_PUBLIC_KEY_PEM:-}"
+      CORS_ALLOWED_ORIGINS: "*"
+    depends_on: [auth-service, user-service]
+    networks: [tiktok_net]
+
+  # â”€â”€ Microservices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  # auth-service: no viper prefix; explicit BindEnv for all keys.
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: tiktok_auth_service
+    restart: unless-stopped
+    ports: ["8081:8081"]
+    environment:
+      SERVER_PORT: 8081
+      DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/tiktok_auth?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_ACCESS_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # user-service: no viper prefix; reads individual DB_* vars via os.Getenv.
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: tiktok_user_service
+    restart: unless-stopped
+    ports: ["8082:8082"]
+    environment:
+      SERVER_PORT: 8082
+      DB_HOST: host.docker.internal
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: tiktok_users
+      DB_SSL_MODE: disable
+      REDIS_ADDR: redis:6379
+      S3_ENDPOINT: minio:9000
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin123
+      S3_BUCKET_NAME: user-avatars
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # interaction-service: INTERACTION_ prefix (viper). Already correct.
+  interaction-service:
+    build:
+      context: ./services/interaction-service
+      dockerfile: Dockerfile
+    container_name: tiktok_interaction_service
+    restart: unless-stopped
+    ports: ["8083:8083"]
+    environment:
+      INTERACTION_SERVER_PORT: 8083
+      INTERACTION_SERVER_ENVIRONMENT: production
+      INTERACTION_DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/tiktok_interaction?sslmode=disable
+      INTERACTION_REDIS_ADDR: redis:6379
+      INTERACTION_KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # feed-service: no prefix; reads DATABASE_DSN, REDIS_ADDR, KAFKA_BROKERS, SERVER_PORT.
+  feed-service:
+    build:
+      context: ./services/feed-service
+      dockerfile: Dockerfile
+    container_name: tiktok_feed_service
+    restart: unless-stopped
+    ports: ["8084:8084"]
+    environment:
+      SERVER_PORT: 8084
+      DATABASE_DSN: postgres://postgres:postgres@host.docker.internal:5432/tiktok_feed?sslmode=disable
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # livestream-service: LIVESTREAM_ prefix (viper); individual DB fields. Already correct.
+  livestream-service:
+    build:
+      context: ./services/livestream-service
+      dockerfile: Dockerfile
+    container_name: tiktok_livestream_service
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+      - "1935:1935"
+    environment:
+      LIVESTREAM_SERVER_HTTP_PORT: 8085
+      LIVESTREAM_SERVER_ENVIRONMENT: production
+      LIVESTREAM_DATABASE_HOST: host.docker.internal
+      LIVESTREAM_DATABASE_DBNAME: tiktok_livestream
+      LIVESTREAM_DATABASE_USER: postgres
+      LIVESTREAM_DATABASE_PASSWORD: postgres
+      LIVESTREAM_REDIS_ADDRS: redis:6379
+      LIVESTREAM_KAFKA_BROKERS: kafka:9092
+      LIVESTREAM_HLS_OUTPUT_PATH: /var/hls
+      LIVESTREAM_HLS_BASE_URL: http://localhost/hls
+      LIVESTREAM_FFMPEG_BINARY_PATH: /usr/bin/ffmpeg
+    volumes:
+      - hls_data:/var/hls
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # video-service: no prefix; reads individual DB_* and storage vars via os.Getenv.
+  video-service:
+    build:
+      context: ./services/video-service
+      dockerfile: Dockerfile
+    container_name: tiktok_video_service
+    restart: unless-stopped
+    ports: ["8086:8086"]
+    environment:
+      SERVER_PORT: 8086
+      DB_HOST: host.docker.internal
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: tiktok_videos
+      DB_SSLMODE: disable
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: kafka:9092
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin123
+      S3_BUCKET: videos
+      S3_ENDPOINT: minio:9000
+      S3_USE_PATH_STYLE: "true"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # search-service: config not audited; keeping current vars.
+  search-service:
+    build:
+      context: ./services/search-service
+      dockerfile: Dockerfile
+    container_name: tiktok_search_service
+    restart: unless-stopped
+    ports: ["8087:8087"]
+    environment:
+      SEARCH_SERVER_PORT: 8087
+      SEARCH_ELASTICSEARCH_URL: http://elasticsearch:9200
+      SEARCH_REDIS_ADDR: redis:6379
+    depends_on:
+      elasticsearch: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # notification-service: NOTIFICATION_ prefix; individual DB fields.
+  # NOTE: Firebase, SendGrid, and Twilio require real credentials to actually
+  # send notifications. Placeholder values allow the service to pass config
+  # validation and start, but push/email/SMS delivery will fail at runtime.
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: tiktok_notification_service
+    restart: unless-stopped
+    ports: ["8088:8088"]
+    environment:
+      NOTIFICATION_SERVER_PORT: 8088
+      NOTIFICATION_DATABASE_HOST: host.docker.internal
+      NOTIFICATION_DATABASE_PORT: "5432"
+      NOTIFICATION_DATABASE_USER: postgres
+      NOTIFICATION_DATABASE_PASSWORD: postgres
+      NOTIFICATION_DATABASE_DBNAME: tiktok_notifications
+      NOTIFICATION_REDIS_ADDR: redis:6379
+      NOTIFICATION_KAFKA_BROKERS: kafka:9092
+      NOTIFICATION_FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-placeholder-project}
+      NOTIFICATION_FIREBASE_CREDENTIALS_JSON: ${FIREBASE_CREDENTIALS_JSON:-placeholder-credentials}
+      NOTIFICATION_SENDGRID_API_KEY: ${SENDGRID_API_KEY:-SG.placeholder}
+      NOTIFICATION_SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@example.com}
+      NOTIFICATION_TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-ACplaceholder}
+      NOTIFICATION_TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-placeholder}
+      NOTIFICATION_TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-+10000000000}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # wallet-service: no prefix; reads DATABASE_URL, REDIS_ADDR, JWT_SECRET, SERVER_PORT.
+  wallet-service:
+    build:
+      context: ./services/wallet-service
+      dockerfile: Dockerfile
+    container_name: tiktok_wallet_service
+    restart: unless-stopped
+    ports: ["8089:8089"]
+    environment:
+      SERVER_PORT: 8089
+      DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/tiktok_wallet?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # admin-service: ADMIN_ prefix (viper SetEnvPrefix).
+  admin-service:
+    build:
+      context: ./services/admin-service
+      dockerfile: Dockerfile
+    container_name: tiktok_admin_service
+    restart: unless-stopped
+    ports: ["8090:8090"]
+    environment:
+      ADMIN_SERVER_PORT: 8090
+      ADMIN_DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/tiktok_admin?sslmode=disable
+      ADMIN_REDIS_ADDR: redis:6379
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-admin-change-me}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # ecommerce-service: no prefix; explicit BindEnv for DATABASE_URL, REDIS_ADDR,
+  # KAFKA_BROKERS, JWT_ACCESS_SECRET. Port fixed from 8089 â†’ 8091.
+  ecommerce-service:
+    build:
+      context: ./services/ecommerce-service
+      dockerfile: Dockerfile
+    container_name: tiktok_ecommerce_service
+    restart: unless-stopped
+    ports: ["8091:8091"]
+    environment:
+      SERVER_PORT: 8091
+      DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/tiktok_ecommerce?sslmode=disable
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: kafka:9092
+      JWT_ACCESS_SECRET: ${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # reporting-service: reads REPORTING_DATABASE_URL, REPORTING_PORT, REPORTING_ENV directly.
+  reporting-service:
+    build:
+      context: ./services/reporting-service
+      dockerfile: Dockerfile
+    container_name: tiktok_reporting_service
+    restart: unless-stopped
+    ports: ["8092:8092"]
+    environment:
+      REPORTING_DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/tiktok_reports?sslmode=disable
+      REPORTING_PORT: 8092
+      REPORTING_ENV: production
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # messaging-service: no prefix; reads individual DATABASE_* fields and REDIS_ADDR.
+  messaging-service:
+    build:
+      context: ./services/messaging-service
+      dockerfile: Dockerfile
+    container_name: tiktok_messaging_service
+    restart: unless-stopped
+    ports: ["8093:8093"]
+    environment:
+      SERVER_PORT: 8093
+      DATABASE_HOST: host.docker.internal
+      DATABASE_PORT: "5432"
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_DBNAME: tiktok_messaging
+      DATABASE_SSLMODE: disable
+      REDIS_ADDR: redis:6379
+      CRYPTO_ENCRYPTION_KEY_HEX: "6368616e676520746869732070617373776f726420746f206120736563726574"
+      JWT_SECRET: ${JWT_SECRET:-tiktok-dev-secret-change-in-production-2024}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # social-graph-service: SOCIAL_GRAPH_ prefix (viper); individual DB fields.
+  social-graph-service:
+    build:
+      context: ./services/social-graph-service
+      dockerfile: Dockerfile
+    container_name: tiktok_social_graph_service
+    restart: unless-stopped
+    ports: ["8094:8094"]
+    environment:
+      SOCIAL_GRAPH_SERVER_PORT: 8094
+      SOCIAL_GRAPH_DATABASE_HOST: host.docker.internal
+      SOCIAL_GRAPH_DATABASE_PORT: "5432"
+      SOCIAL_GRAPH_DATABASE_USER: postgres
+      SOCIAL_GRAPH_DATABASE_PASSWORD: postgres
+      SOCIAL_GRAPH_DATABASE_DBNAME: tiktok_social
+      SOCIAL_GRAPH_REDIS_ADDR: redis:6379
+      SOCIAL_GRAPH_KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # analytics-service: no prefix; reads SERVER_PORT, KAFKA_BROKERS, CLICKHOUSE_ADDR,
+  # CLICKHOUSE_DATABASE, REDIS_ADDR, and DB_* (postgres) directly via os.Getenv.
+  analytics-service:
+    build:
+      context: ./services/analytics-service
+      dockerfile: Dockerfile
+    container_name: tiktok_analytics_service
+    restart: unless-stopped
+    ports: ["8095:8095"]
+    environment:
+      SERVER_PORT: 8095
+      KAFKA_BROKERS: kafka:9092
+      CLICKHOUSE_ADDR: clickhouse:9009
+      CLICKHOUSE_DATABASE: tiktok
+      REDIS_ADDR: redis:6379
+      DB_HOST: host.docker.internal
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: tiktok_analytics
+      DB_SSLMODE: disable
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      clickhouse: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  # recommendation-service: REC_ prefix (viper SetEnvPrefix). No database needed.
+  recommendation-service:
+    build:
+      context: ./services/recommendation-service
+      dockerfile: Dockerfile
+    container_name: tiktok_recommendation_service
+    restart: unless-stopped
+    ports: ["8096:8096"]
+    environment:
+      REC_SERVER_HTTP_PORT: 8096
+      REC_REDIS_ADDR: redis:6379
+      REC_KAFKA_BROKERS: kafka:9092
+    depends_on:
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  comment-service:
+    build:
+      context: ./backend/comment-service
+      dockerfile: Dockerfile
+    container_name: tiktok_comment_service
+    restart: unless-stopped
+    ports: ["8097:8097"]
+    environment:
+      COMMENT_SERVER_PORT: 8097
+      COMMENT_DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/tiktok_comments?sslmode=disable
+      COMMENT_KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+  like-service:
+    build:
+      context: ./backend/like-service
+      dockerfile: Dockerfile
+    container_name: tiktok_like_service
+    restart: unless-stopped
+    ports: ["8098:8098"]
+    environment:
+      LIKE_SERVER_PORT: 8098
+      LIKE_DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/tiktok_likes?sslmode=disable
+      LIKE_REDIS_ADDR: redis:6379
+      LIKE_KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [tiktok_net]
+
+
+

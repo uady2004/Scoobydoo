@@ -1,0 +1,337 @@
+{
+  "settings": {
+    "number_of_shards": 3,
+    "number_of_replicas": 1,
+    "refresh_interval": "5s",
+    "max_result_window": 50000,
+    "analysis": {
+      "analyzer": {
+        "product_name_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "word_delimiter_graph",
+            "stop",
+            "trim"
+          ]
+        },
+        "product_description_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "stop",
+            "snowball",
+            "trim"
+          ]
+        },
+        "autocomplete_analyzer": {
+          "type": "custom",
+          "tokenizer": "product_ngram_tokenizer",
+          "filter": ["lowercase", "asciifolding"]
+        },
+        "autocomplete_search_analyzer": {
+          "type": "custom",
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding"]
+        },
+        "tag_analyzer": {
+          "type": "custom",
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "asciifolding", "trim"]
+        }
+      },
+      "tokenizer": {
+        "product_ngram_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20,
+          "token_chars": ["letter", "digit"]
+        }
+      },
+      "filter": {
+        "word_delimiter_graph": {
+          "type": "word_delimiter_graph",
+          "preserve_original": true,
+          "split_on_numerics": false,
+          "split_on_case_change": true,
+          "catenate_all": true
+        }
+      },
+      "normalizer": {
+        "lowercase_normalizer": {
+          "type": "custom",
+          "filter": ["lowercase", "asciifolding"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "_source": {
+      "enabled": true
+    },
+    "properties": {
+      "product_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "seller_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "seller_name": {
+        "type": "text",
+        "analyzer": "product_name_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase_normalizer",
+            "ignore_above": 256
+          }
+        }
+      },
+      "store_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "name": {
+        "type": "text",
+        "analyzer": "product_name_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase_normalizer",
+            "ignore_above": 512
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "autocomplete_search_analyzer"
+          },
+          "suggest": {
+            "type": "completion",
+            "analyzer": "simple",
+            "search_analyzer": "simple",
+            "contexts": [
+              {
+                "name": "category",
+                "type": "category"
+              }
+            ]
+          }
+        }
+      },
+      "description": {
+        "type": "text",
+        "analyzer": "product_description_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 4096
+          }
+        }
+      },
+      "short_description": {
+        "type": "text",
+        "analyzer": "product_description_analyzer"
+      },
+      "sku": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "barcode": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "brand": {
+        "type": "text",
+        "analyzer": "product_name_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase_normalizer",
+            "ignore_above": 256
+          }
+        }
+      },
+      "category": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "sub_category": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "category_path": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "tags": {
+        "type": "text",
+        "analyzer": "tag_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase_normalizer",
+            "doc_values": true
+          }
+        }
+      },
+      "price": {
+        "type": "scaled_float",
+        "scaling_factor": 100,
+        "doc_values": true
+      },
+      "original_price": {
+        "type": "scaled_float",
+        "scaling_factor": 100,
+        "doc_values": true
+      },
+      "discount_percentage": {
+        "type": "float",
+        "doc_values": true
+      },
+      "currency": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "price_range": {
+        "type": "object",
+        "dynamic": false,
+        "properties": {
+          "min": { "type": "scaled_float", "scaling_factor": 100 },
+          "max": { "type": "scaled_float", "scaling_factor": 100 }
+        }
+      },
+      "rating": {
+        "type": "float",
+        "doc_values": true
+      },
+      "rating_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "review_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "sold_count": {
+        "type": "long",
+        "doc_values": true
+      },
+      "stock_count": {
+        "type": "integer",
+        "doc_values": true
+      },
+      "is_in_stock": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "is_active": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "is_featured": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "is_flash_sale": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "flash_sale_ends_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "ships_from": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "ships_to": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "shipping_cost": {
+        "type": "scaled_float",
+        "scaling_factor": 100,
+        "doc_values": true
+      },
+      "free_shipping": {
+        "type": "boolean",
+        "doc_values": true
+      },
+      "images": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "video_demo_id": {
+        "type": "keyword",
+        "doc_values": true
+      },
+      "attributes": {
+        "type": "nested",
+        "dynamic": false,
+        "properties": {
+          "name": { "type": "keyword" },
+          "value": { "type": "keyword" }
+        }
+      },
+      "variants": {
+        "type": "nested",
+        "dynamic": false,
+        "properties": {
+          "variant_id": { "type": "keyword" },
+          "name": { "type": "keyword" },
+          "price": { "type": "scaled_float", "scaling_factor": 100 },
+          "stock": { "type": "integer" }
+        }
+      },
+      "trending_score": {
+        "type": "float",
+        "doc_values": true
+      },
+      "popularity_score": {
+        "type": "float",
+        "doc_values": true
+      },
+      "created_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "updated_at": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 768,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      },
+      "image_embedding": {
+        "type": "dense_vector",
+        "dims": 512,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 100
+        }
+      }
+    }
+  }
+}
