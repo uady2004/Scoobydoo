@@ -10,7 +10,7 @@
 //   go test ./...         — run all tests across all modules
 //   go work use ./path    — add a new module to the workspace
 
-go 1.26
+go 1.26.3
 
 use (
 	./backend/api-gateway
