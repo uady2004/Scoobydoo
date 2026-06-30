@@ -1,15 +1,8 @@
 FROM golang:1.22-alpine AS builder
-
 WORKDIR /app
-
+COPY go.mod go.sum ./
+RUN go mod download
 COPY main.go .
-
-RUN go mod init backend && \
-    go get github.com/gin-gonic/gin && \
-    go get github.com/gin-contrib/cors && \
-    go get github.com/golang-jwt/jwt/v5 && \
-    go mod tidy
-
 RUN go build -o server main.go
 
 FROM alpine:latest
