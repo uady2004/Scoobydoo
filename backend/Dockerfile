@@ -1,9 +1,9 @@
 FROM golang:1.22-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN go mod download
+COPY vendor/ vendor/
 COPY main.go .
-RUN go build -o server main.go
+RUN go build -mod=vendor -o server main.go
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
