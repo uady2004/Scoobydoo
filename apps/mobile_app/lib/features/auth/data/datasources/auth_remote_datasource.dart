@@ -21,35 +21,13 @@ abstract class AuthRemoteDataSource {
     required String refreshToken,
   });
 
-  Future<Map<String, dynamic>> googleSignIn({
-    required String idToken,
-  });
-
-  Future<Map<String, dynamic>> appleSignIn({
-    required String identityToken,
-  });
-
-  Future<void> sendOTP({
-    required String phone,
-  });
-
-  Future<Map<String, dynamic>> verifyOTP({
-    required String phone,
-    required String code,
-  });
-
-  Future<void> forgotPassword({
-    required String email,
-  });
-
-  Future<void> resetPassword({
-    required String token,
-    required String newPassword,
-  });
-
-  Future<void> verifyEmail({
-    required String token,
-  });
+  Future<Map<String, dynamic>> googleSignIn({required String idToken});
+  Future<Map<String, dynamic>> appleSignIn({required String identityToken});
+  Future<void> sendOTP({required String phone});
+  Future<Map<String, dynamic>> verifyOTP({required String phone, required String code});
+  Future<void> forgotPassword({required String email});
+  Future<void> resetPassword({required String token, required String newPassword});
+  Future<void> verifyEmail({required String token});
 }
 
 class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
@@ -58,66 +36,42 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   AuthRemoteDataSourceImpl({Dio? dio})
       : _dio = dio ?? ApiClient.instance.dio;
 
-  // -------------------------------------------------------------------------
-  // Internal helpers
-  // -------------------------------------------------------------------------
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
-  Map<String, dynamic> _body(Response<dynamic> response) {
-    final data = response.data;
-    if (data is Map<String, dynamic>) return data;
+  Map<String, dynamic> _body(Response<dynamic> r) {
+    if (r.data is Map<String, dynamic>) return r.data as Map<String, dynamic>;
     throw ServerException(
-      message: 'Unexpected response format from server.',
-      statusCode: response.statusCode,
+      message: 'Unexpected response format.',
+      statusCode: r.statusCode,
     );
   }
 
-  Never _handleDioError(DioException e) {
-    final statusCode = e.response?.statusCode;
-    final serverMessage = _extractServerMessage(e.response?.data);
+  /// Converts DioException → typed exception. Never returns.
+  Exception _mapError(DioException e) {
+    final code = e.response?.statusCode;
+    final msg  = _msg(e.response?.data) ?? e.message ?? 'Unknown error';
 
-    switch (e.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-        throw ServerException(
-          message: 'Request timed out. Please try again.',
-          statusCode: statusCode,
-        );
-      case DioExceptionType.badResponse:
-        if (statusCode == 401 || statusCode == 403) {
-          throw AuthException(
-            message: serverMessage ?? 'Authentication failed.',
-            statusCode: statusCode,
-          );
-        }
-        throw ServerException(
-          message: serverMessage ?? 'Server error ($statusCode).',
-          statusCode: statusCode,
-        );
-      case DioExceptionType.connectionError:
-        throw const NetworkException(
-          message: 'Cannot reach the server. Check your connection.',
-        );
-      default:
-        throw ServerException(
-          message: serverMessage ?? e.message ?? 'An unknown error occurred.',
-          statusCode: statusCode,
-        );
+    if (e.type == DioExceptionType.connectionError) {
+      return const NetworkException(message: 'No internet connection.');
     }
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      return ServerException(message: 'Request timed out.', statusCode: code);
+    }
+    if (code == 401 || code == 403) {
+      return AuthException(message: msg, statusCode: code);
+    }
+    return ServerException(message: msg, statusCode: code);
   }
 
-  String? _extractServerMessage(dynamic data) {
-    if (data is Map<String, dynamic>) {
-      return data['message'] as String? ??
-          data['error'] as String? ??
-          data['msg'] as String?;
+  String? _msg(dynamic data) {
+    if (data is Map) {
+      return (data['message'] ?? data['error'] ?? data['msg'])?.toString();
     }
     return null;
   }
 
-  // -------------------------------------------------------------------------
-  // Auth endpoints
-  // -------------------------------------------------------------------------
+  // ── Auth ──────────────────────────────────────────────────────────────────
 
   @override
   Future<Map<String, dynamic>> login({
@@ -125,13 +79,13 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     required String password,
   }) async {
     try {
-      final response = await _dio.post(
+      final r = await _dio.post<dynamic>(
         '/auth/login',
         data: {'email': email, 'password': password},
       );
-      return _body(response);
+      return _body(r);
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
@@ -143,27 +97,27 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     String? phone,
   }) async {
     try {
-      final response = await _dio.post(
+      final r = await _dio.post<dynamic>(
         '/auth/register',
         data: {
           'username': username,
-          'email': email,
+          'email':    email,
           'password': password,
-          if (phone != null) 'phone': phone,
+          if (phone != null && phone.isNotEmpty) 'phone': phone,
         },
       );
-      return _body(response);
+      return _body(r);
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
   @override
   Future<void> logout() async {
     try {
-      await _dio.post('/auth/logout');
+      await _dio.post<dynamic>('/auth/logout');
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
@@ -172,52 +126,48 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     required String refreshToken,
   }) async {
     try {
-      final response = await _dio.post(
+      final r = await _dio.post<dynamic>(
         '/auth/refresh',
         data: {'refresh_token': refreshToken},
       );
-      return _body(response);
+      return _body(r);
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
   @override
-  Future<Map<String, dynamic>> googleSignIn({
-    required String idToken,
-  }) async {
+  Future<Map<String, dynamic>> googleSignIn({required String idToken}) async {
     try {
-      final response = await _dio.post(
+      final r = await _dio.post<dynamic>(
         '/auth/oauth/google',
         data: {'id_token': idToken},
       );
-      return _body(response);
+      return _body(r);
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
   @override
-  Future<Map<String, dynamic>> appleSignIn({
-    required String identityToken,
-  }) async {
+  Future<Map<String, dynamic>> appleSignIn({required String identityToken}) async {
     try {
-      final response = await _dio.post(
+      final r = await _dio.post<dynamic>(
         '/auth/oauth/apple',
         data: {'identity_token': identityToken},
       );
-      return _body(response);
+      return _body(r);
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
   @override
   Future<void> sendOTP({required String phone}) async {
     try {
-      await _dio.post('/auth/otp/send', data: {'phone': phone});
+      await _dio.post<dynamic>('/auth/otp/send', data: {'phone': phone});
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
@@ -227,22 +177,25 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     required String code,
   }) async {
     try {
-      final response = await _dio.post(
+      final r = await _dio.post<dynamic>(
         '/auth/otp/verify',
         data: {'phone': phone, 'code': code},
       );
-      return _body(response);
+      return _body(r);
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
   @override
   Future<void> forgotPassword({required String email}) async {
     try {
-      await _dio.post('/auth/forgot-password', data: {'email': email});
+      await _dio.post<dynamic>(
+        '/auth/forgot-password',
+        data: {'email': email},
+      );
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
@@ -252,21 +205,24 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     required String newPassword,
   }) async {
     try {
-      await _dio.post(
+      await _dio.post<dynamic>(
         '/auth/reset-password',
         data: {'token': token, 'new_password': newPassword},
       );
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 
   @override
   Future<void> verifyEmail({required String token}) async {
     try {
-      await _dio.post('/auth/verify-email', data: {'token': token});
+      await _dio.post<dynamic>(
+        '/auth/verify-email',
+        data: {'token': token},
+      );
     } on DioException catch (e) {
-      _handleDioError(e);
+      throw _mapError(e);
     }
   }
 }

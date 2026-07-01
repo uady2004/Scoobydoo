@@ -194,8 +194,8 @@ class _RetryInterceptor extends Interceptor {
 
   final Dio _dio;
 
-  static const int _maxAttempts = 3;
-  static const List<int> _backoffSeconds = [1, 2, 4];
+  static const int _maxAttempts = 1;
+  static const List<int> _backoffSeconds = [1];
 
   @override
   Future<void> onError(
@@ -318,7 +318,7 @@ class ApiClient {
       BaseOptions(
         baseUrl: ApiEndpoints.baseUrl,
         connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 15),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',

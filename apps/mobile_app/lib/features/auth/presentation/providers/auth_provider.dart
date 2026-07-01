@@ -12,29 +12,16 @@ import '../../../../core/usecases/usecase.dart';
 // ── States ────────────────────────────────────────────────────────────────────
 
 sealed class AuthState { const AuthState(); }
-
-/// App is checking local storage on startup
-class AuthInitial extends AuthState { const AuthInitial(); }
-
-/// User is not logged in
 class AuthUnauthenticated extends AuthState { const AuthUnauthenticated(); }
-
-/// A network call is in progress
-class AuthLoading extends AuthState { const AuthLoading(); }
-
-/// User is logged in — user object is available
+class AuthLoading         extends AuthState { const AuthLoading(); }
+class AuthRegistered      extends AuthState {
+  final String email;
+  const AuthRegistered(this.email);
+}
 class AuthAuthenticated extends AuthState {
   final UserEntity user;
   const AuthAuthenticated(this.user);
 }
-
-/// Register succeeded — screen should navigate to login
-class AuthRegistered extends AuthState {
-  final String email;
-  const AuthRegistered(this.email);
-}
-
-/// Something went wrong
 class AuthError extends AuthState {
   final String message;
   const AuthError(this.message);
@@ -48,10 +35,12 @@ final _remoteProvider = Provider<AuthRemoteDataSource>(
 final _localProvider = Provider<AuthLocalDataSource>(
   (_) => const AuthLocalDataSourceImpl(),
 );
-final _repoProvider = Provider<AuthRepositoryImpl>((ref) => AuthRepositoryImpl(
-  remote: ref.watch(_remoteProvider),
-  local:  ref.watch(_localProvider),
-));
+final _repoProvider = Provider<AuthRepositoryImpl>(
+  (ref) => AuthRepositoryImpl(
+    remote: ref.watch(_remoteProvider),
+    local:  ref.watch(_localProvider),
+  ),
+);
 final loginUseCaseProvider    = Provider((ref) => LoginUseCase(ref.watch(_repoProvider)));
 final registerUseCaseProvider = Provider((ref) => RegisterUseCase(ref.watch(_repoProvider)));
 final logoutUseCaseProvider   = Provider((ref) => LogoutUseCase(ref.watch(_repoProvider)));
@@ -63,9 +52,12 @@ final googleSignInUseCaseProvider = Provider(
 
 class AuthNotifier extends AsyncNotifier<AuthState> {
   @override
-  Future<AuthState> build() => _restore();
+Future<AuthState> build() async {
+  // Always start fresh — clear any stuck loading state
+  return _restore();
+}
 
-  // ── On app start ──────────────────────────────────────────────────────────
+  // ── Restore session on app start ──────────────────────────────────────────
   Future<AuthState> _restore() async {
     try {
       final local = ref.read(_localProvider);
@@ -79,22 +71,30 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   // ── Login ─────────────────────────────────────────────────────────────────
-  Future<void> login({required String email, required String password}) async {
+  Future<void> login({
+    required String email,
+    required String password,
+  }) async {
+    // Set loading
     state = const AsyncData(AuthLoading());
+
     try {
       final result = await ref.read(loginUseCaseProvider).call(
         LoginParams(email: email, password: password),
       );
+
+      // Always update state — never stay on AuthLoading
       state = await result.fold(
         (failure) async => AsyncData(AuthError(failure.message)),
         (_) async {
           final user = await ref.read(_localProvider).getUser();
           if (user != null) return AsyncData(AuthAuthenticated(user));
-          // Fallback — never stay on loading
+          // Fallback — create minimal user from email
           return AsyncData(AuthAuthenticated(_TempUser(email: email)));
         },
       );
     } catch (e) {
+      // Catch any unexpected error — never stay on loading
       state = AsyncData(AuthError(e.toString()));
     }
   }
@@ -107,15 +107,21 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     String? phone,
   }) async {
     state = const AsyncData(AuthLoading());
+
     try {
       final result = await ref.read(registerUseCaseProvider).call(
-        RegisterParams(username: username, email: email,
-            password: password, phone: phone),
+        RegisterParams(
+          username: username,
+          email:    email,
+          password: password,
+          phone:    phone,
+        ),
       );
+
+      // Always update state
       state = result.fold(
         (failure) => AsyncData(AuthError(failure.message)),
-        // Emit AuthRegistered so screen navigates to login
-        (_) => AsyncData(AuthRegistered(email)),
+        (_)       => AsyncData(AuthRegistered(email)),
       );
     } catch (e) {
       state = AsyncData(AuthError(e.toString()));
@@ -140,7 +146,8 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   Future<void> appleSignIn({required String identityToken}) async {
     state = const AsyncData(AuthLoading());
     try {
-      final result = await ref.read(_repoProvider).appleSignIn(identityToken: identityToken);
+      final result = await ref.read(_repoProvider)
+          .appleSignIn(identityToken: identityToken);
       state = await result.fold(
         (f) async => AsyncData(AuthError(f.message)),
         (_) async => AsyncData(await _restore()),
@@ -153,7 +160,10 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   // ── Logout ────────────────────────────────────────────────────────────────
   Future<void> logout() async {
     state = const AsyncData(AuthLoading());
-    await ref.read(logoutUseCaseProvider).call(const NoParams());
+    try {
+      await ref.read(logoutUseCaseProvider).call(const NoParams());
+    } catch (_) {}
+    // Always go to unauthenticated
     state = const AsyncData(AuthUnauthenticated());
   }
 
@@ -164,18 +174,19 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 }
 
-/// Minimal user created when storage save fails — prevents infinite loading.
+/// Temporary user when storage fails — prevents infinite loading.
 class _TempUser extends UserEntity {
   _TempUser({required String email})
       : super(
-          id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
-          username: email.split('@').first,
+          id:          'tmp_${DateTime.now().millisecondsSinceEpoch}',
+          username:    email.split('@').first,
           displayName: email.split('@').first,
-          email: email,
-          isVerified: false,
-          isCreator: false,
-          createdAt: DateTime.now(),
+          email:       email,
+          isVerified:  false,
+          isCreator:   false,
+          createdAt:   DateTime.now(),
         );
 }
 
-final authProvider = AsyncNotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);
+final authProvider =
+    AsyncNotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);

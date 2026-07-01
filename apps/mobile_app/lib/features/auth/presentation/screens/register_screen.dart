@@ -13,104 +13,75 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _formKey            = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
-  final _emailController    = TextEditingController();
-  final _phoneController    = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _termsAccepted  = false;
-  int  _passwordStrength = 0;
+  final _usernameCtrl       = TextEditingController();
+  final _emailCtrl          = TextEditingController();
+  final _phoneCtrl          = TextEditingController();
+  final _passwordCtrl       = TextEditingController();
+  bool _accepted            = false;
+  int  _strength            = 0;
+  bool _isLoading           = false; // local loading flag
 
   @override
   void dispose() {
-    _usernameController.dispose();
-    _emailController.dispose();
-    _phoneController.dispose();
-    _passwordController.dispose();
+    _usernameCtrl.dispose();
+    _emailCtrl.dispose();
+    _phoneCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
   }
 
-  // ── Password strength ─────────────────────────────────────────────────────
-  void _onPasswordChanged(String v) {
+  void _onPassword(String v) {
     int s = 0;
-    if (v.length >= 8)                                           s++;
-    if (v.contains(RegExp(r'[A-Z]')))                           s++;
-    if (v.contains(RegExp(r'[0-9]')))                           s++;
-    if (v.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]')))        s++;
-    setState(() => _passwordStrength = s);
+    if (v.length >= 8)                               s++;
+    if (v.contains(RegExp(r'[A-Z]')))               s++;
+    if (v.contains(RegExp(r'[0-9]')))               s++;
+    if (v.contains(RegExp(r'[!@#\$%^&*]')))         s++;
+    setState(() => _strength = s);
   }
 
-  Color _strengthColor(int i) {
-    if (_passwordStrength == 0 || i >= _passwordStrength) return Colors.grey[800]!;
-    return switch (_passwordStrength) {
-      1 => const Color(0xFFFF0050),
-      2 => const Color(0xFFFF6B00),
-      3 => const Color(0xFFFFD700),
-      _ => const Color(0xFF00C853),
-    };
+  Color _bar(int i) {
+    if (_strength == 0 || i >= _strength) return Colors.grey[800]!;
+    return [Colors.red, Colors.orange, Colors.yellow, Colors.green][_strength - 1];
   }
 
-  String get _strengthLabel => switch (_passwordStrength) {
-    0 => '', 1 => 'Weak', 2 => 'Fair', 3 => 'Good', _ => 'Strong',
-  };
+  String get _label => ['', 'Weak', 'Fair', 'Good', 'Strong'][_strength];
 
-  // ── Validation ────────────────────────────────────────────────────────────
-  String? _validateUsername(String? v) {
-    if (v == null || v.trim().isEmpty) return 'Username is required';
-    if (v.trim().length < 3) return 'At least 3 characters';
-    if (!RegExp(r'^[a-zA-Z0-9_.]+$').hasMatch(v.trim()))
-      return 'Only letters, numbers, _ and .';
-    return null;
-  }
-
-  String? _validateEmail(String? v) {
-    if (v == null || v.trim().isEmpty) return 'Email is required';
-    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v.trim()))
-      return 'Enter a valid email';
-    return null;
-  }
-
-  String? _validatePassword(String? v) {
-    if (v == null || v.isEmpty) return 'Password is required';
-    if (v.length < 8) return 'At least 8 characters';
-    return null;
-  }
-
-  // ── Submit ────────────────────────────────────────────────────────────────
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
-    if (!_termsAccepted) {
-      _snack('Please accept the Terms & Privacy Policy.', error: true);
+    if (!_accepted) {
+      _snack('Please accept Terms & Privacy Policy', error: true);
       return;
     }
-    await ref.read(authProvider.notifier).register(
-      username: _usernameController.text.trim(),
-      email:    _emailController.text.trim(),
-      password: _passwordController.text,
-      phone:    _phoneController.text.trim().isEmpty
-                  ? null
-                  : _phoneController.text.trim(),
-    );
+
+    setState(() => _isLoading = true);
+
+    try {
+      await ref.read(authProvider.notifier).register(
+        username: _usernameCtrl.text.trim(),
+        email:    _emailCtrl.text.trim(),
+        password: _passwordCtrl.text,
+        phone:    _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _snack(String msg, {bool error = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg, style: const TextStyle(color: Colors.white)),
-      backgroundColor: error ? const Color(0xFFFF0050) : const Color(0xFF2ECC71),
+      backgroundColor: error ? const Color(0xFFEE1D52) : const Color(0xFF2ECC71),
       behavior: SnackBarBehavior.floating,
     ));
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final isLoading = authState.value is AuthLoading;
-
-    // ── Listen for state changes ──────────────────────────────────────────
+    // Listen for auth state changes
     ref.listen(authProvider, (_, next) {
       next.whenData((state) {
         if (state is AuthRegistered) {
-          // ✅ Register success → go to login with success message
           _snack('Account created! Please sign in.');
           context.go('/login');
         } else if (state is AuthError) {
@@ -145,27 +116,35 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 24),
 
                 AuthTextField(
-                  controller: _usernameController,
+                  controller: _usernameCtrl,
                   label: 'Username',
                   hint: 'your_username',
                   keyboardType: TextInputType.text,
                   prefixIcon: const Icon(Icons.alternate_email),
-                  validator: _validateUsername,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Username required';
+                    if (v.trim().length < 3) return 'At least 3 characters';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 16),
 
                 AuthTextField(
-                  controller: _emailController,
+                  controller: _emailCtrl,
                   label: 'Email address',
                   hint: 'you@example.com',
                   keyboardType: TextInputType.emailAddress,
                   prefixIcon: const Icon(Icons.email_outlined),
-                  validator: _validateEmail,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Email required';
+                    if (!v.contains('@')) return 'Enter a valid email';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 16),
 
                 AuthTextField(
-                  controller: _phoneController,
+                  controller: _phoneCtrl,
                   label: 'Phone number (optional)',
                   hint: '+1 234 567 8900',
                   keyboardType: TextInputType.phone,
@@ -174,77 +153,73 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 16),
 
                 AuthTextField(
-                  controller: _passwordController,
+                  controller: _passwordCtrl,
                   label: 'Password',
                   isPassword: true,
-                  textInputAction: TextInputAction.done,
                   prefixIcon: const Icon(Icons.lock_outline),
-                  validator: _validatePassword,
-                  onChanged: _onPasswordChanged,
+                  onChanged: _onPassword,
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return 'Password required';
+                    if (v.length < 8) return 'At least 8 characters';
+                    return null;
+                  },
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
 
-                // Password strength bar
-                Row(
-                  children: [
-                    ...List.generate(4, (i) => Expanded(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 250),
-                        margin: EdgeInsets.only(right: i < 3 ? 4 : 0),
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: _strengthColor(i),
-                          borderRadius: BorderRadius.circular(2),
+                // Strength bar
+                if (_strength > 0) ...[
+                  Row(
+                    children: [
+                      ...List.generate(4, (i) => Expanded(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          margin: EdgeInsets.only(right: i < 3 ? 4 : 0),
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: _bar(i),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
-                      ),
-                    )),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      width: 44,
-                      child: Text(_strengthLabel,
+                      )),
+                      const SizedBox(width: 8),
+                      Text(_label,
                           style: TextStyle(
-                            color: _strengthColor(_passwordStrength - 1),
-                            fontSize: 11, fontWeight: FontWeight.w600,
-                          )),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
+                              color: _bar(_strength - 1),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ] else
+                  const SizedBox(height: 16),
 
-                // Terms checkbox
+                // Terms
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      width: 24, height: 24,
-                      child: Checkbox(
-                        value: _termsAccepted,
-                        onChanged: (v) =>
-                            setState(() => _termsAccepted = v ?? false),
-                        activeColor: const Color(0xFFFF0050),
-                        checkColor: Colors.white,
-                        side: BorderSide(color: Colors.grey[600]!, width: 1.5),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(4)),
-                      ),
+                    Checkbox(
+                      value: _accepted,
+                      onChanged: (v) => setState(() => _accepted = v ?? false),
+                      activeColor: const Color(0xFFEE1D52),
+                      checkColor: Colors.white,
+                      side: BorderSide(color: Colors.grey[600]!),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4)),
                     ),
-                    const SizedBox(width: 12),
                     Expanded(
                       child: GestureDetector(
-                        onTap: () =>
-                            setState(() => _termsAccepted = !_termsAccepted),
+                        onTap: () => setState(() => _accepted = !_accepted),
                         child: RichText(
                           text: TextSpan(
-                            style: TextStyle(color: Colors.grey[400],
-                                fontSize: 13, height: 1.5),
+                            style: TextStyle(color: Colors.grey[400], fontSize: 13),
                             children: const [
                               TextSpan(text: 'I agree to the '),
                               TextSpan(text: 'Terms of Service',
-                                  style: TextStyle(color: Color(0xFFFF0050),
+                                  style: TextStyle(color: Color(0xFFEE1D52),
                                       fontWeight: FontWeight.w600)),
                               TextSpan(text: ' and '),
                               TextSpan(text: 'Privacy Policy',
-                                  style: TextStyle(color: Color(0xFFFF0050),
+                                  style: TextStyle(color: Color(0xFFEE1D52),
                                       fontWeight: FontWeight.w600)),
                             ],
                           ),
@@ -253,51 +228,45 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
 
-                // Create Account button
+                // Register button
                 SizedBox(
                   width: double.infinity,
                   height: 52,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: isLoading ? null : const LinearGradient(
-                        colors: [Color(0xFFFF0050), Color(0xFFEE1D52)],
-                      ),
-                      color: isLoading ? Colors.grey[800] : null,
-                      borderRadius: BorderRadius.circular(8),
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _register,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isLoading
+                          ? Colors.grey[800]
+                          : const Color(0xFFEE1D52),
+                      disabledBackgroundColor: Colors.grey[800],
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      elevation: 0,
                     ),
-                    child: ElevatedButton(
-                      onPressed: isLoading ? null : _register,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: isLoading
-                          ? const SizedBox(width: 22, height: 22,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2.5, color: Colors.white))
-                          : const Text('Create Account',
-                              style: TextStyle(fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white)),
-                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 22, height: 22,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2.5, color: Colors.white))
+                        : const Text('Create Account',
+                            style: TextStyle(fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white)),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text('Already have an account? ',
-                        style: TextStyle(
-                            color: Colors.grey[500], fontSize: 14)),
+                        style: TextStyle(color: Colors.grey[500], fontSize: 14)),
                     GestureDetector(
                       onTap: () => context.go('/login'),
                       child: const Text('Sign In',
-                          style: TextStyle(color: Color(0xFFFF0050),
+                          style: TextStyle(color: Color(0xFFEE1D52),
                               fontSize: 14, fontWeight: FontWeight.w700)),
                     ),
                   ],

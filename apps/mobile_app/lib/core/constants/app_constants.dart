@@ -1,6 +1,6 @@
 class AppConstants {
   // API base URL — override via env or a build flavor.
-  static const String apiUrl = 'http://10.0.2.2:8000/api/v1';
+  static const String apiUrl = 'http://10.0.2.2:8080/api/v1';
 
   // Secure-storage keys.
   static const String token = 'access_token';

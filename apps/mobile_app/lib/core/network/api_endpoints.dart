@@ -1,6 +1,5 @@
 // ignore_for_file: constant_identifier_names
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// Central registry of every API endpoint used by the app.
 /// All paths that contain a path parameter are expressed as
@@ -8,7 +7,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 /// site, keeping every URL in one place.
 ///
 /// Base URL is configurable at build time via:
-///   flutter run --dart-define=API_BASE_URL=http://192.168.1.x:8000/api/v1
+///   flutter run --dart-define=API_BASE_URL=http://192.168.1.x:8080/api/v1
 abstract final class ApiEndpoints {
   // ── Base ────────────────────────────────────────────────────
   // Picks the right host automatically:
@@ -16,19 +15,17 @@ abstract final class ApiEndpoints {
   //   Android emulator → 10.0.2.2 (loopback alias to host)
   //   Override     → set API_BASE_URL at build time
 
-  // static String get baseUrl {
-  //   const envUrl = String.fromEnvironment('API_BASE_URL');
-  //   if (envUrl.isNotEmpty) return envUrl;
-  //   if (kIsWeb) return 'http://localhost:8000/api/v1';
-  //   return 'http://10.0.2.2:8000/api/v1';
-  // }
-
-static String get baseUrl {
-  const envUrl = String.fromEnvironment('API_BASE_URL');
-  if (envUrl.isNotEmpty) return envUrl;
-  if (kIsWeb) return 'https://scoobydoo.onrender.com';
-  return 'https://scoobydoo.onrender.com';
-}
+  // Override at build time: flutter run --dart-define=API_BASE_URL=http://x.x.x.x:8080/api/v1
+  // For Android emulator add: --dart-define=EMULATOR=true
+  static String get baseUrl {
+    const envUrl = String.fromEnvironment('API_BASE_URL');
+    if (envUrl.isNotEmpty) return envUrl;
+    const isEmulator = bool.fromEnvironment('EMULATOR', defaultValue: false);
+    if (isEmulator) return 'http://10.0.2.2:8080/api/v1';
+    const isLocalWeb = bool.fromEnvironment('LOCAL_WEB', defaultValue: false);
+    if (isLocalWeb) return 'http://localhost:8080/api/v1';
+    return 'https://scoobydoo.onrender.com/api/v1';
+  }
 
   // ── Auth ────────────────────────────────────────────────────
   static const String login = '/auth/login';
