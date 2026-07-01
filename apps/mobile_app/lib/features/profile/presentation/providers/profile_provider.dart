@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tiktok_clone/core/network/api_client.dart';
+import 'package:tiktok_clone/features/auth/data/datasources/auth_local_datasource.dart';
+import 'package:tiktok_clone/features/auth/data/models/user_model.dart';
 import 'package:tiktok_clone/features/auth/presentation/providers/auth_provider.dart';
 import 'package:tiktok_clone/features/home_feed/domain/entities/feed_item_entity.dart';
 import 'package:tiktok_clone/features/profile/data/datasources/profile_remote_datasource.dart';
@@ -15,6 +17,10 @@ import 'package:tiktok_clone/features/profile/domain/usecases/get_user_videos_us
 import 'package:tiktok_clone/features/profile/domain/usecases/update_profile_usecase.dart';
 import 'package:tiktok_clone/features/profile/domain/usecases/upload_avatar_usecase.dart';
 import 'package:tiktok_clone/features/profile/data/models/profile_model.dart';
+
+final _authLocalProvider = Provider<AuthLocalDataSource>(
+  (_) => const AuthLocalDataSourceImpl(),
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Infrastructure
@@ -339,26 +345,52 @@ class EditProfileNotifier extends AsyncNotifier<EditProfileState> {
     final updateUseCase = ref.read(updateProfileUseCaseProvider);
     final result = await updateUseCase(params);
 
-    result.fold(
-      (failure) {
-        state = AsyncValue.data(
-          EditProfileState(isSaving: false, error: failure.message),
-        );
-      },
-      (updatedProfile) {
-        // 3. Propagate new data back into the cached profile provider.
-        final patchedProfile = newAvatarUrl != null
-            ? updatedProfile.copyWith(avatarUrl: newAvatarUrl)
-            : updatedProfile;
+    final failure = result.fold((f) => f, (_) => null);
+    if (failure != null) {
+      state = AsyncValue.data(
+        EditProfileState(isSaving: false, error: failure.message),
+      );
+      return;
+    }
 
-        ref
-            .read(profileProvider(userId).notifier)
-            .applyLocalUpdate(patchedProfile);
+    final updatedProfile = result.getOrElse((_) => throw StateError('unreachable'));
 
-        state = AsyncValue.data(
-          const EditProfileState(isSaving: false, savedSuccessfully: true),
-        );
-      },
+    // 3. Merge avatar URL if one was uploaded.
+    final patchedProfile = (newAvatarUrl != null && newAvatarUrl.isNotEmpty)
+        ? updatedProfile.copyWith(avatarUrl: newAvatarUrl)
+        : updatedProfile;
+
+    // 4. Push new data into the cached profileProvider so screens update.
+    if (userId.isNotEmpty) {
+      ref.read(profileProvider(userId).notifier).applyLocalUpdate(patchedProfile);
+    }
+
+    // 5. Persist the updated user into secure storage so session restore
+    //    returns fresh data on the next app launch.
+    final authState = ref.read(authProvider).valueOrNull;
+    if (authState is AuthAuthenticated) {
+      try {
+        final local = ref.read(_authLocalProvider);
+        final existing = authState.user;
+        await local.saveUser(UserModel(
+          id: existing.id,
+          username: patchedProfile.username,
+          displayName: patchedProfile.displayName,
+          email: existing.email,
+          phone: existing.phone,
+          avatarUrl: patchedProfile.avatarUrl ?? existing.avatarUrl,
+          isVerified: existing.isVerified,
+          isCreator: existing.isCreator,
+          createdAt: existing.createdAt,
+        ));
+      } catch (_) {}
+    }
+
+    // 6. Invalidate ownProfileProvider so Edit Profile loads fresh data next open.
+    ref.invalidate(ownProfileProvider);
+
+    state = AsyncValue.data(
+      const EditProfileState(isSaving: false, savedSuccessfully: true),
     );
   }
 

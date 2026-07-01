@@ -23,6 +23,8 @@ type User struct {
 	DisplayName string `json:"display_name"`
 	AvatarURL   string `json:"avatar_url"`
 	Bio         string `json:"bio"`
+	Website     string `json:"website"`
+	IsPrivate   bool   `json:"is_private"`
 	Followers   int    `json:"followers"`
 	Following   int    `json:"following"`
 	Likes       int    `json:"likes"`
@@ -127,14 +129,14 @@ func formatProfile(u User) gin.H {
 		"email":           u.Email,
 		"avatar_url":      u.AvatarURL,
 		"bio":             u.Bio,
-		"website":         "",
+		"website":         u.Website,
 		"follower_count":  u.Followers,
 		"following_count": u.Following,
 		"like_count":      u.Likes,
 		"video_count":     0,
 		"is_verified":     u.IsVerified,
 		"is_creator":      false,
-		"is_private":      false,
+		"is_private":      u.IsPrivate,
 		"is_following":    false,
 		"created_at":      time.Now().UTC().Format(time.RFC3339),
 	}
@@ -260,29 +262,56 @@ func getMe(c *gin.Context) {
 
 func updateMe(c *gin.Context) {
 	userID, _ := c.Get("user_id")
+	uid := userID.(int)
 	var req struct {
 		DisplayName string `json:"display_name"`
 		Username    string `json:"username"`
 		Bio         string `json:"bio"`
+		Website     string `json:"website"`
+		IsPrivate   bool   `json:"is_private"`
 	}
 	c.ShouldBindJSON(&req)
+
 	for i, user := range users {
-		if user.ID == userID.(int) {
+		if user.ID == uid {
 			if req.DisplayName != "" {
 				users[i].DisplayName = req.DisplayName
 			}
 			if req.Username != "" {
 				users[i].Username = req.Username
 			}
-			if req.Bio != "" {
-				users[i].Bio = req.Bio
-			}
+			users[i].Bio = req.Bio
+			users[i].Website = req.Website
+			users[i].IsPrivate = req.IsPrivate
 			saveUsers()
 			c.JSON(200, formatProfile(users[i]))
 			return
 		}
 	}
-	c.JSON(404, gin.H{"error": "user not found"})
+
+	// User not in memory (e.g. Render restarted and wiped users.json) — upsert.
+	username := req.Username
+	if username == "" {
+		username = "user" + strconv.Itoa(uid)
+	}
+	name := req.DisplayName
+	if name == "" {
+		name = username
+	}
+	newUser := User{
+		ID:          uid,
+		Username:    username,
+		DisplayName: name,
+		Bio:         req.Bio,
+		Website:     req.Website,
+		IsPrivate:   req.IsPrivate,
+	}
+	users = append(users, newUser)
+	if uid >= userIDCounter {
+		userIDCounter = uid + 1
+	}
+	saveUsers()
+	c.JSON(200, formatProfile(newUser))
 }
 
 func followUser(c *gin.Context) {
@@ -391,6 +420,20 @@ func main() {
 	authV1.GET("/users/me", getMe)
 	authV1.PUT("/users/me", updateMe)
 	authV1.PATCH("/users/me", updateMe)
+	authV1.POST("/users/me/avatar", func(c *gin.Context) {
+		c.JSON(200, gin.H{"avatar_url": ""})
+	})
+	authV1.GET("/users/check-username", func(c *gin.Context) {
+		username := c.Query("username")
+		taken := false
+		for _, u := range users {
+			if strings.EqualFold(u.Username, username) {
+				taken = true
+				break
+			}
+		}
+		c.JSON(200, gin.H{"available": !taken})
+	})
 	authV1.GET("/users/:id", getProfile)
 	authV1.GET("/users/:id/profile", getProfile)
 	authV1.POST("/users/:id/follow", followUser)
@@ -435,6 +478,20 @@ func main() {
 	auth.GET("/users/me", getMe)
 	auth.PUT("/users/me", updateMe)
 	auth.PATCH("/users/me", updateMe)
+	auth.POST("/users/me/avatar", func(c *gin.Context) {
+		c.JSON(200, gin.H{"avatar_url": ""})
+	})
+	auth.GET("/users/check-username", func(c *gin.Context) {
+		username := c.Query("username")
+		taken := false
+		for _, u := range users {
+			if strings.EqualFold(u.Username, username) {
+				taken = true
+				break
+			}
+		}
+		c.JSON(200, gin.H{"available": !taken})
+	})
 	auth.GET("/users/:id", getProfile)
 	auth.GET("/users/:id/profile", getProfile)
 	auth.POST("/users/:id/follow", followUser)

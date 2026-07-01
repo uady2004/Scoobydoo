@@ -29,36 +29,21 @@ class ProfileRemoteDataSourceImpl implements ProfileRemoteDataSource {
   @override
   Future<ProfileModel> getProfile(String userId) async {
     try {
-      // Try /users/:id/profile first (real microservice path)
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/users/$userId/profile',
-      );
+      final response = await _dio.get<Map<String, dynamic>>('/users/$userId');
       return _parseProfile(response.data!, userId);
     } on DioException {
+      // Fallback: own-profile endpoint (works when userId == current user's id)
       try {
-        // Fallback to /users/:id (simple backend path)
-        final response = await _dio.get<Map<String, dynamic>>(
-          '/users/$userId',
-        );
+        final response = await _dio.get<Map<String, dynamic>>('/users/me');
         return _parseProfile(response.data!, userId);
-      } on DioException {
-        // Last fallback — /users/me (own profile)
-        try {
-          final response =
-              await _dio.get<Map<String, dynamic>>('/users/me');
-          return _parseProfile(response.data!, userId);
-        } on DioException {
-          // Return empty profile so UI never stays stuck
-          return _emptyProfile(userId);
-        }
+      } on DioException catch (e) {
+        throw _mapDioException(e);
       }
     }
   }
 
-  /// Parse profile from API response — handles both backends.
-  ProfileModel _parseProfile(
-      Map<String, dynamic> data, String fallbackId) {
-    // Normalise: ensure user_id is present
+  /// Parse profile from API response — normalises id fields across backends.
+  ProfileModel _parseProfile(Map<String, dynamic> data, String fallbackId) {
     if (data['user_id'] == null && data['id'] != null) {
       data['user_id'] = data['id'].toString();
     }
@@ -66,26 +51,6 @@ class ProfileRemoteDataSourceImpl implements ProfileRemoteDataSource {
       data['user_id'] = fallbackId;
     }
     return ProfileModel.fromJson(data);
-  }
-
-  /// Empty profile used when all API calls fail.
-  ProfileModel _emptyProfile(String userId) {
-    return ProfileModel(
-      userId: userId,
-      username: userId.length > 20 ? userId.substring(0, 8) : userId,
-      displayName: 'User',
-      bio: null,
-      avatarUrl: null,
-      website: null,
-      followerCount: 0,
-      followingCount: 0,
-      likeCount: 0,
-      videoCount: 0,
-      isVerified: false,
-      isCreator: false,
-      isPrivate: false,
-      createdAt: DateTime.now(),
-    );
   }
 
   @override
@@ -115,15 +80,10 @@ class ProfileRemoteDataSourceImpl implements ProfileRemoteDataSource {
         data: formData,
         options: Options(contentType: 'multipart/form-data'),
       );
-      final avatarUrl = response.data?['avatar_url'] as String?;
-      if (avatarUrl == null || avatarUrl.isEmpty) {
-        throw const ServerException(
-          message: 'Avatar upload succeeded but no URL returned.',
-          statusCode: 200,
-        );
-      }
-      return avatarUrl;
+      // Return the URL if the backend provides one, else empty string (skip quietly)
+      return response.data?['avatar_url'] as String? ?? '';
     } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return ''; // backend doesn't support avatar yet
       throw _mapDioException(e);
     }
   }
