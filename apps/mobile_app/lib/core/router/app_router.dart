@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../features/auth/presentation/providers/auth_provider.dart';
 
 // ── Auth
 import '../../features/auth/presentation/screens/login_screen.dart';
@@ -69,9 +72,38 @@ import '../../features/notifications/notification_preferences_screen.dart';
 // ── Creator profile
 import '../../features/creator_profile/presentation/screens/creator_profile_screen.dart';
 import '../../features/profile/domain/entities/profile_entity.dart';
+
+// Notifies GoRouter whenever auth state changes so redirect runs again.
+class _AuthNotifier extends ChangeNotifier {
+  _AuthNotifier(this._ref) {
+    _ref.listen<AsyncValue<AuthState>>(authProvider, (_, __) => notifyListeners());
+  }
+  final Ref _ref;
+
+  // Auth routes that don't require a session.
+  static const _publicRoutes = {'/login', '/register', '/forgot-password', '/otp'};
+
+  String? redirect(GoRouterState state) {
+    final auth = _ref.read(authProvider);
+    // While session is being restored, don't redirect.
+    if (auth.isLoading) return null;
+
+    final isAuthenticated = auth.valueOrNull is AuthAuthenticated;
+    final isPublic = _publicRoutes.contains(state.matchedLocation);
+
+    if (isAuthenticated && isPublic) return '/home';
+    if (!isAuthenticated && !isPublic) return '/login';
+    return null;
+  }
+}
+
 final appRouterProvider = Provider<GoRouter>((ref) {
+  final notifier = _AuthNotifier(ref);
+
   return GoRouter(
     initialLocation: '/login',
+    refreshListenable: notifier,
+    redirect: (_, state) => notifier.redirect(state),
     debugLogDiagnostics: false,
     routes: [
       // ── Auth ────────────────────────────────────────────────────────────────
