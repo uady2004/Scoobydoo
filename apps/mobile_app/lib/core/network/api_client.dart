@@ -370,4 +370,17 @@ class ApiClient {
   /// Returns the stored access token, or null if not authenticated.
   Future<String?> getAccessToken() =>
       _storage.read(key: _StorageKeys.accessToken);
+
+  /// Sends a fire-and-forget ping to wake the backend (Render free tier sleeps
+  /// when idle). Call this at app startup so the server is ready by the time
+  /// the user reaches the login/register screen.
+  void warmup() {
+    _dio.get<dynamic>(
+      '/auth/refresh',
+      options: Options(
+        extra: {'skip_auth': true},
+        validateStatus: (_) => true, // accept any status — we just need a round-trip
+      ),
+    ).catchError((_) {}); // ignore errors silently
+  }
 }
