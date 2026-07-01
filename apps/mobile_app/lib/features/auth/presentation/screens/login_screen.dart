@@ -61,12 +61,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // React to auth state changes
+    // GoRouter redirect handles navigation to /home on AuthAuthenticated.
+    // Only handle errors here.
     ref.listen<AsyncValue<AuthState>>(authProvider, (_, next) {
       next.whenData((state) {
-        if (state is AuthAuthenticated) {
-          context.go('/home');
-        } else if (state is AuthError) {
+        if (state is AuthError) {
           _showError(state.message);
           ref.read(authProvider.notifier).clearError();
         }
