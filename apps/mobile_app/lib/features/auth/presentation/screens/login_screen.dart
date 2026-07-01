@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,10 +17,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey      = GlobalKey<FormState>();
   final _emailCtrl    = TextEditingController();
   final _passwordCtrl = TextEditingController();
-  bool _isLoading     = false; // local loading flag
+  bool _isLoading     = false;
+  bool _showWakeHint  = false;
+  Timer? _wakeTimer;
 
   @override
   void dispose() {
+    _wakeTimer?.cancel();
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
@@ -27,7 +32,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _showWakeHint = false; });
+
+    // Show hint after 4s so user knows the server is waking up
+    _wakeTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && _isLoading) setState(() => _showWakeHint = true);
+    });
 
     try {
       await ref.read(authProvider.notifier).login(
@@ -35,7 +45,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         password: _passwordCtrl.text,
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      _wakeTimer?.cancel();
+      if (mounted) setState(() { _isLoading = false; _showWakeHint = false; });
     }
   }
 
@@ -50,7 +61,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Listen for auth state changes
     ref.listen(authProvider, (_, next) {
       next.whenData((state) {
         if (state is AuthAuthenticated) {
@@ -74,7 +84,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               children: [
                 const SizedBox(height: 60),
 
-                // Logo
                 const Text('TikTok',
                     style: TextStyle(color: Colors.white, fontSize: 40,
                         fontWeight: FontWeight.w900, letterSpacing: -1)),
@@ -83,7 +92,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     style: TextStyle(color: Colors.grey[500], fontSize: 14)),
                 const SizedBox(height: 48),
 
-                // Email
                 AuthTextField(
                   controller: _emailCtrl,
                   label: 'Email address',
@@ -98,7 +106,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Password
                 AuthTextField(
                   controller: _passwordCtrl,
                   label: 'Password',
@@ -112,7 +119,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Forgot password
                 Align(
                   alignment: Alignment.centerRight,
                   child: GestureDetector(
@@ -124,7 +130,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                // Login button
                 SizedBox(
                   width: double.infinity,
                   height: 52,
@@ -150,9 +155,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 color: Colors.white)),
                   ),
                 ),
-                const SizedBox(height: 32),
 
-                // Divider
+                // Server wake-up hint
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: _showWakeHint
+                      ? Padding(
+                          key: const ValueKey('hint'),
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(
+                            'Server is starting up, please wait...',
+                            style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                          ),
+                        )
+                      : const SizedBox(key: ValueKey('empty'), height: 12),
+                ),
+
+                const SizedBox(height: 20),
+
                 Row(children: [
                   Expanded(child: Divider(color: Colors.grey[800])),
                   Padding(
@@ -164,7 +184,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ]),
                 const SizedBox(height: 32),
 
-                // Register link
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -12,17 +14,20 @@ class RegisterScreen extends ConsumerStatefulWidget {
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
-  final _formKey            = GlobalKey<FormState>();
-  final _usernameCtrl       = TextEditingController();
-  final _emailCtrl          = TextEditingController();
-  final _phoneCtrl          = TextEditingController();
-  final _passwordCtrl       = TextEditingController();
-  bool _accepted            = false;
-  int  _strength            = 0;
-  bool _isLoading           = false; // local loading flag
+  final _formKey      = GlobalKey<FormState>();
+  final _usernameCtrl = TextEditingController();
+  final _emailCtrl    = TextEditingController();
+  final _phoneCtrl    = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  bool   _accepted    = false;
+  int    _strength    = 0;
+  bool   _isLoading   = false;
+  bool   _showWakeHint = false;
+  Timer? _wakeTimer;
 
   @override
   void dispose() {
+    _wakeTimer?.cancel();
     _usernameCtrl.dispose();
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
@@ -32,10 +37,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   void _onPassword(String v) {
     int s = 0;
-    if (v.length >= 8)                               s++;
-    if (v.contains(RegExp(r'[A-Z]')))               s++;
-    if (v.contains(RegExp(r'[0-9]')))               s++;
-    if (v.contains(RegExp(r'[!@#\$%^&*]')))         s++;
+    if (v.length >= 8)                     s++;
+    if (v.contains(RegExp(r'[A-Z]')))      s++;
+    if (v.contains(RegExp(r'[0-9]')))      s++;
+    if (v.contains(RegExp(r'[!@#\$%^&*]'))) s++;
     setState(() => _strength = s);
   }
 
@@ -53,7 +58,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _showWakeHint = false; });
+
+    _wakeTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && _isLoading) setState(() => _showWakeHint = true);
+    });
 
     try {
       await ref.read(authProvider.notifier).register(
@@ -63,7 +72,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         phone:    _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      _wakeTimer?.cancel();
+      if (mounted) setState(() { _isLoading = false; _showWakeHint = false; });
     }
   }
 
@@ -78,7 +88,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Listen for auth state changes
     ref.listen(authProvider, (_, next) {
       next.whenData((state) {
         if (state is AuthRegistered) {
@@ -166,7 +175,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // Strength bar
                 if (_strength > 0) ...[
                   Row(
                     children: [
@@ -193,7 +201,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ] else
                   const SizedBox(height: 16),
 
-                // Terms
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -230,7 +237,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 28),
 
-                // Register button
                 SizedBox(
                   width: double.infinity,
                   height: 52,
@@ -256,7 +262,25 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 color: Colors.white)),
                   ),
                 ),
-                const SizedBox(height: 20),
+
+                // Server wake-up hint
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: _showWakeHint
+                      ? Padding(
+                          key: const ValueKey('hint'),
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Center(
+                            child: Text(
+                              'Server is starting up, please wait...',
+                              style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                            ),
+                          ),
+                        )
+                      : const SizedBox(key: ValueKey('empty'), height: 12),
+                ),
+
+                const SizedBox(height: 8),
 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
