@@ -12,8 +12,8 @@ import 'api_endpoints.dart';
 // Storage keys
 // ─────────────────────────────────────────────────────────────────────────────
 abstract final class _StorageKeys {
-  static const String accessToken = 'access_token';
-  static const String refreshToken = 'refresh_token';
+  static const String accessToken = 'tk_access';
+  static const String refreshToken = 'tk_refresh';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

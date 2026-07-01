@@ -1,9 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../domain/entities/user_entity.dart';
 import '../../domain/usecases/login_usecase.dart';
 import '../../domain/usecases/logout_usecase.dart';
 import '../../domain/usecases/register_usecase.dart';
-import '../../domain/usecases/google_signin_usecase.dart';
 import '../../data/datasources/auth_local_datasource.dart';
 import '../../data/datasources/auth_remote_datasource.dart';
 import '../../data/repositories/auth_repository_impl.dart';
@@ -11,95 +11,103 @@ import '../../../../core/usecases/usecase.dart';
 
 // ── States ────────────────────────────────────────────────────────────────────
 
-sealed class AuthState { const AuthState(); }
-class AuthUnauthenticated extends AuthState { const AuthUnauthenticated(); }
-class AuthLoading         extends AuthState { const AuthLoading(); }
-class AuthRegistered      extends AuthState {
-  final String email;
-  const AuthRegistered(this.email);
+sealed class AuthState {
+  const AuthState();
 }
+
+class AuthInitial extends AuthState {
+  const AuthInitial();
+}
+
+class AuthLoading extends AuthState {
+  const AuthLoading();
+}
+
 class AuthAuthenticated extends AuthState {
   final UserEntity user;
   const AuthAuthenticated(this.user);
 }
+
+class AuthUnauthenticated extends AuthState {
+  const AuthUnauthenticated();
+}
+
 class AuthError extends AuthState {
   final String message;
   const AuthError(this.message);
 }
 
-// ── Providers ─────────────────────────────────────────────────────────────────
+// ── Internal providers ────────────────────────────────────────────────────────
 
 final _remoteProvider = Provider<AuthRemoteDataSource>(
   (_) => AuthRemoteDataSourceImpl(),
 );
+
 final _localProvider = Provider<AuthLocalDataSource>(
   (_) => const AuthLocalDataSourceImpl(),
 );
+
 final _repoProvider = Provider<AuthRepositoryImpl>(
   (ref) => AuthRepositoryImpl(
     remote: ref.watch(_remoteProvider),
-    local:  ref.watch(_localProvider),
+    local: ref.watch(_localProvider),
   ),
 );
-final loginUseCaseProvider    = Provider((ref) => LoginUseCase(ref.watch(_repoProvider)));
-final registerUseCaseProvider = Provider((ref) => RegisterUseCase(ref.watch(_repoProvider)));
-final logoutUseCaseProvider   = Provider((ref) => LogoutUseCase(ref.watch(_repoProvider)));
-final googleSignInUseCaseProvider = Provider(
-  (ref) => GoogleSignInUseCase(repository: ref.watch(_repoProvider)),
-);
+
+final loginUseCaseProvider =
+    Provider((ref) => LoginUseCase(ref.watch(_repoProvider)));
+
+final registerUseCaseProvider =
+    Provider((ref) => RegisterUseCase(ref.watch(_repoProvider)));
+
+final logoutUseCaseProvider =
+    Provider((ref) => LogoutUseCase(ref.watch(_repoProvider)));
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
 
 class AuthNotifier extends AsyncNotifier<AuthState> {
   @override
-Future<AuthState> build() async {
-  // Always start fresh — clear any stuck loading state
-  return _restore();
-}
+  Future<AuthState> build() => _restoreSession();
 
-  // ── Restore session on app start ──────────────────────────────────────────
-  Future<AuthState> _restore() async {
+  // ── Session restore ───────────────────────────────────────────────────────
+
+  Future<AuthState> _restoreSession() async {
     try {
       final local = ref.read(_localProvider);
       if (!await local.hasValidSession()) return const AuthUnauthenticated();
       final user = await local.getUser();
       if (user != null) return AuthAuthenticated(user);
-      return const AuthUnauthenticated();
-    } catch (_) {
-      return const AuthUnauthenticated();
-    }
+    } catch (_) {}
+    return const AuthUnauthenticated();
   }
 
   // ── Login ─────────────────────────────────────────────────────────────────
+
   Future<void> login({
     required String email,
     required String password,
   }) async {
-    // Set loading
     state = const AsyncData(AuthLoading());
-
     try {
       final result = await ref.read(loginUseCaseProvider).call(
-        LoginParams(email: email, password: password),
-      );
-
-      // Always update state — never stay on AuthLoading
+            LoginParams(email: email, password: password),
+          );
       state = await result.fold(
         (failure) async => AsyncData(AuthError(failure.message)),
         (_) async {
           final user = await ref.read(_localProvider).getUser();
           if (user != null) return AsyncData(AuthAuthenticated(user));
-          // Fallback — create minimal user from email
-          return AsyncData(AuthAuthenticated(_TempUser(email: email)));
+          // Fallback: backend saved token but not user object
+          return AsyncData(AuthAuthenticated(_tempUser(email)));
         },
       );
     } catch (e) {
-      // Catch any unexpected error — never stay on loading
       state = AsyncData(AuthError(e.toString()));
     }
   }
 
   // ── Register ──────────────────────────────────────────────────────────────
+
   Future<void> register({
     required String username,
     required String email,
@@ -107,50 +115,23 @@ Future<AuthState> build() async {
     String? phone,
   }) async {
     state = const AsyncData(AuthLoading());
-
     try {
       final result = await ref.read(registerUseCaseProvider).call(
-        RegisterParams(
-          username: username,
-          email:    email,
-          password: password,
-          phone:    phone,
-        ),
-      );
-
-      // Always update state
-      state = result.fold(
-        (failure) => AsyncData(AuthError(failure.message)),
-        (_)       => AsyncData(AuthRegistered(email)),
-      );
-    } catch (e) {
-      state = AsyncData(AuthError(e.toString()));
-    }
-  }
-
-  // ── Google ────────────────────────────────────────────────────────────────
-  Future<void> googleSignIn() async {
-    state = const AsyncData(AuthLoading());
-    try {
-      final result = await ref.read(googleSignInUseCaseProvider).call(const NoParams());
+            RegisterParams(
+              username: username,
+              email: email,
+              password: password,
+              phone: phone,
+            ),
+          );
       state = await result.fold(
-        (f) async => AsyncData(AuthError(f.message)),
-        (_) async => AsyncData(await _restore()),
-      );
-    } catch (e) {
-      state = AsyncData(AuthError(e.toString()));
-    }
-  }
-
-  // ── Apple ─────────────────────────────────────────────────────────────────
-  Future<void> appleSignIn({required String identityToken}) async {
-    state = const AsyncData(AuthLoading());
-    try {
-      final result = await ref.read(_repoProvider)
-          .appleSignIn(identityToken: identityToken);
-      state = await result.fold(
-        (f) async => AsyncData(AuthError(f.message)),
-        (_) async => AsyncData(await _restore()),
+        (failure) async => AsyncData(AuthError(failure.message)),
+        (_) async {
+          // Backend returns tokens on register — auto-login the user
+          final user = await ref.read(_localProvider).getUser();
+          if (user != null) return AsyncData(AuthAuthenticated(user));
+          return AsyncData(AuthAuthenticated(_tempUser(email, username: username)));
+        },
       );
     } catch (e) {
       state = AsyncData(AuthError(e.toString()));
@@ -158,33 +139,40 @@ Future<AuthState> build() async {
   }
 
   // ── Logout ────────────────────────────────────────────────────────────────
+
   Future<void> logout() async {
     state = const AsyncData(AuthLoading());
     try {
       await ref.read(logoutUseCaseProvider).call(const NoParams());
     } catch (_) {}
-    // Always go to unauthenticated
     state = const AsyncData(AuthUnauthenticated());
   }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   void clearError() {
     if (state.value is AuthError) {
       state = const AsyncData(AuthUnauthenticated());
     }
   }
+
+  UserEntity _tempUser(String email, {String? username}) {
+    final name = username ?? email.split('@').first;
+    return _TempUser(username: name, email: email);
+  }
 }
 
-/// Temporary user when storage fails — prevents infinite loading.
+/// Minimal user created when secure storage read fails after a successful auth.
 class _TempUser extends UserEntity {
-  _TempUser({required String email})
+  _TempUser({required String username, required String email})
       : super(
-          id:          'tmp_${DateTime.now().millisecondsSinceEpoch}',
-          username:    email.split('@').first,
-          displayName: email.split('@').first,
-          email:       email,
-          isVerified:  false,
-          isCreator:   false,
-          createdAt:   DateTime.now(),
+          id: 'tmp_$email',
+          username: username,
+          displayName: username,
+          email: email,
+          isVerified: false,
+          isCreator: false,
+          createdAt: DateTime.now(),
         );
 }
 

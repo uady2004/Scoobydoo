@@ -1,8 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../providers/auth_provider.dart';
 import '../widgets/auth_text_field.dart';
 
@@ -14,87 +13,92 @@ class RegisterScreen extends ConsumerStatefulWidget {
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
-  final _formKey      = GlobalKey<FormState>();
-  final _usernameCtrl = TextEditingController();
-  final _emailCtrl    = TextEditingController();
-  final _phoneCtrl    = TextEditingController();
-  final _passwordCtrl = TextEditingController();
-  bool   _accepted    = false;
-  int    _strength    = 0;
-  bool   _isLoading   = false;
-  bool   _showWakeHint = false;
-  Timer? _wakeTimer;
+  final _formKey       = GlobalKey<FormState>();
+  final _usernameCtrl  = TextEditingController();
+  final _emailCtrl     = TextEditingController();
+  final _passwordCtrl  = TextEditingController();
+  final _emailFocus    = FocusNode();
+  final _passwordFocus = FocusNode();
+  bool _loading        = false;
+  int  _pwStrength     = 0;
 
   @override
   void dispose() {
-    _wakeTimer?.cancel();
     _usernameCtrl.dispose();
     _emailCtrl.dispose();
-    _phoneCtrl.dispose();
     _passwordCtrl.dispose();
+    _emailFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
-  void _onPassword(String v) {
+  void _onPasswordChanged(String v) {
     int s = 0;
-    if (v.length >= 8)                     s++;
-    if (v.contains(RegExp(r'[A-Z]')))      s++;
-    if (v.contains(RegExp(r'[0-9]')))      s++;
-    if (v.contains(RegExp(r'[!@#\$%^&*]'))) s++;
-    setState(() => _strength = s);
+    if (v.length >= 8) s++;
+    if (v.contains(RegExp(r'[A-Z]'))) s++;
+    if (v.contains(RegExp(r'[0-9]'))) s++;
+    if (v.contains(RegExp(r'[!@#\$%^&*()\-_=+]'))) s++;
+    setState(() => _pwStrength = s);
   }
 
-  Color _bar(int i) {
-    if (_strength == 0 || i >= _strength) return Colors.grey[800]!;
-    return [Colors.red, Colors.orange, Colors.yellow, Colors.green][_strength - 1];
-  }
+  Color get _strengthColor => switch (_pwStrength) {
+        1 => Colors.red[400]!,
+        2 => Colors.orange[400]!,
+        3 => Colors.yellow[600]!,
+        4 => Colors.green[400]!,
+        _ => Colors.transparent,
+      };
 
-  String get _label => ['', 'Weak', 'Fair', 'Good', 'Strong'][_strength];
+  String get _strengthLabel => switch (_pwStrength) {
+        1 => 'Weak',
+        2 => 'Fair',
+        3 => 'Good',
+        4 => 'Strong',
+        _ => '',
+      };
 
-  Future<void> _register() async {
+  Future<void> _createAccount() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
-    if (!_accepted) {
-      _snack('Please accept Terms & Privacy Policy', error: true);
-      return;
-    }
 
-    setState(() { _isLoading = true; _showWakeHint = false; });
-
-    _wakeTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && _isLoading) setState(() => _showWakeHint = true);
-    });
-
+    setState(() => _loading = true);
     try {
       await ref.read(authProvider.notifier).register(
-        username: _usernameCtrl.text.trim(),
-        email:    _emailCtrl.text.trim(),
-        password: _passwordCtrl.text,
-        phone:    _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
-      );
+            username: _usernameCtrl.text.trim(),
+            email: _emailCtrl.text.trim(),
+            password: _passwordCtrl.text,
+          );
     } finally {
-      _wakeTimer?.cancel();
-      if (mounted) setState(() { _isLoading = false; _showWakeHint = false; });
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _snack(String msg, {bool error = false}) {
+  void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg, style: const TextStyle(color: Colors.white)),
-      backgroundColor: error ? const Color(0xFFEE1D52) : const Color(0xFF2ECC71),
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg, style: const TextStyle(color: Colors.white)),
+          backgroundColor: const Color(0xFFEE1D52),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(authProvider, (_, next) {
+    // React to auth state changes
+    ref.listen<AsyncValue<AuthState>>(authProvider, (_, next) {
       next.whenData((state) {
-        if (state is AuthRegistered) {
-          _snack('Account created! Please sign in.');
-          context.go('/login');
+        if (state is AuthAuthenticated) {
+          // Backend returns tokens on register → auto logged in → go to home
+          context.go('/home');
         } else if (state is AuthError) {
-          _snack(state.message, error: true);
+          _showError(state.message);
           ref.read(authProvider.notifier).clearError();
         }
       });
@@ -105,193 +109,195 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
+        scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
-          onPressed: () => context.pop(),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded,
+              color: Colors.white, size: 20),
+          onPressed: _loading ? null : () => context.pop(),
         ),
-        title: const Text('Create account',
-            style: TextStyle(color: Colors.white, fontSize: 17,
-                fontWeight: FontWeight.w600)),
+        title: const Text(
+          'Create account',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         centerTitle: true,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 28),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
+                // ── Username ──────────────────────────────────────────────
                 AuthTextField(
                   controller: _usernameCtrl,
                   label: 'Username',
                   hint: 'your_username',
-                  keyboardType: TextInputType.text,
-                  prefixIcon: const Icon(Icons.alternate_email),
+                  prefixIcon: const Icon(Icons.alternate_email_rounded),
+                  textInputAction: TextInputAction.next,
+                  enabled: !_loading,
+                  onSubmitted: (_) => _emailFocus.requestFocus(),
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Username required';
-                    if (v.trim().length < 3) return 'At least 3 characters';
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Username is required';
+                    }
+                    final trimmed = v.trim();
+                    if (trimmed.length < 3) {
+                      return 'Username must be at least 3 characters';
+                    }
+                    if (trimmed.length > 30) {
+                      return 'Username must be 30 characters or less';
+                    }
+                    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(trimmed)) {
+                      return 'Only letters, numbers and underscores allowed';
+                    }
                     return null;
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
 
+                // ── Email ─────────────────────────────────────────────────
                 AuthTextField(
                   controller: _emailCtrl,
-                  label: 'Email address',
+                  label: 'Email',
                   hint: 'you@example.com',
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
                   prefixIcon: const Icon(Icons.email_outlined),
+                  focusNode: _emailFocus,
+                  enabled: !_loading,
+                  onSubmitted: (_) => _passwordFocus.requestFocus(),
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Email required';
-                    if (!v.contains('@')) return 'Enter a valid email';
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Email is required';
+                    }
+                    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(v.trim())) {
+                      return 'Enter a valid email address';
+                    }
                     return null;
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
 
-                AuthTextField(
-                  controller: _phoneCtrl,
-                  label: 'Phone number (optional)',
-                  hint: '+1 234 567 8900',
-                  keyboardType: TextInputType.phone,
-                  prefixIcon: const Icon(Icons.phone_outlined),
-                ),
-                const SizedBox(height: 16),
-
+                // ── Password ──────────────────────────────────────────────
                 AuthTextField(
                   controller: _passwordCtrl,
                   label: 'Password',
                   isPassword: true,
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  onChanged: _onPassword,
+                  focusNode: _passwordFocus,
+                  textInputAction: TextInputAction.done,
+                  prefixIcon: const Icon(Icons.lock_outline_rounded),
+                  enabled: !_loading,
+                  onChanged: _onPasswordChanged,
+                  onSubmitted: (_) => _createAccount(),
                   validator: (v) {
-                    if (v == null || v.isEmpty) return 'Password required';
-                    if (v.length < 8) return 'At least 8 characters';
+                    if (v == null || v.isEmpty) return 'Password is required';
+                    if (v.length < 8) {
+                      return 'Password must be at least 8 characters';
+                    }
                     return null;
                   },
                 ),
                 const SizedBox(height: 10),
 
-                if (_strength > 0) ...[
+                // ── Password strength ─────────────────────────────────────
+                if (_pwStrength > 0) ...[
                   Row(
                     children: [
-                      ...List.generate(4, (i) => Expanded(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          margin: EdgeInsets.only(right: i < 3 ? 4 : 0),
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: _bar(i),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      )),
-                      const SizedBox(width: 8),
-                      Text(_label,
-                          style: TextStyle(
-                              color: _bar(_strength - 1),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                ] else
-                  const SizedBox(height: 16),
-
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Checkbox(
-                      value: _accepted,
-                      onChanged: (v) => setState(() => _accepted = v ?? false),
-                      activeColor: const Color(0xFFEE1D52),
-                      checkColor: Colors.white,
-                      side: BorderSide(color: Colors.grey[600]!),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(4)),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() => _accepted = !_accepted),
-                        child: RichText(
-                          text: TextSpan(
-                            style: TextStyle(color: Colors.grey[400], fontSize: 13),
-                            children: const [
-                              TextSpan(text: 'I agree to the '),
-                              TextSpan(text: 'Terms of Service',
-                                  style: TextStyle(color: Color(0xFFEE1D52),
-                                      fontWeight: FontWeight.w600)),
-                              TextSpan(text: ' and '),
-                              TextSpan(text: 'Privacy Policy',
-                                  style: TextStyle(color: Color(0xFFEE1D52),
-                                      fontWeight: FontWeight.w600)),
-                            ],
+                      ...List.generate(
+                        4,
+                        (i) => Expanded(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            margin: EdgeInsets.only(right: i < 3 ? 4 : 0),
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: i < _pwStrength
+                                  ? _strengthColor
+                                  : Colors.grey[800],
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 28),
+                      const SizedBox(width: 10),
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(
+                          color: _strengthColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        child: Text(_strengthLabel),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+                ] else
+                  const SizedBox(height: 28),
 
+                // ── Create Account button ─────────────────────────────────
                 SizedBox(
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _register,
+                    onPressed: _loading ? null : _createAccount,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _isLoading
-                          ? Colors.grey[800]
-                          : const Color(0xFFEE1D52),
-                      disabledBackgroundColor: Colors.grey[800],
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8)),
+                      backgroundColor: const Color(0xFFEE1D52),
+                      disabledBackgroundColor: Colors.grey[850],
+                      foregroundColor: Colors.white,
+                      disabledForegroundColor: Colors.white54,
                       elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
-                    child: _isLoading
+                    child: _loading
                         ? const SizedBox(
-                            width: 22, height: 22,
+                            width: 22,
+                            height: 22,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2.5, color: Colors.white))
-                        : const Text('Create Account',
-                            style: TextStyle(fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white)),
-                  ),
-                ),
-
-                // Server wake-up hint
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: _showWakeHint
-                      ? Padding(
-                          key: const ValueKey('hint'),
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Center(
-                            child: Text(
-                              'Server is starting up, please wait...',
-                              style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Create Account',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.3,
                             ),
                           ),
-                        )
-                      : const SizedBox(key: ValueKey('empty'), height: 12),
+                  ),
                 ),
+                const SizedBox(height: 28),
 
-                const SizedBox(height: 8),
-
+                // ── Sign In link ──────────────────────────────────────────
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Already have an account? ',
-                        style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+                    Text(
+                      'Already have an account?  ',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                    ),
                     GestureDetector(
-                      onTap: () => context.go('/login'),
-                      child: const Text('Sign In',
-                          style: TextStyle(color: Color(0xFFEE1D52),
-                              fontSize: 14, fontWeight: FontWeight.w700)),
+                      onTap: _loading ? null : () => context.go('/login'),
+                      child: const Text(
+                        'Sign In',
+                        style: TextStyle(
+                          color: Color(0xFFEE1D52),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ],
                 ),

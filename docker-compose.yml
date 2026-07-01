@@ -539,14 +539,7 @@ services:
       CLICKHOUSE_ADDR: clickhouse:9009
       CLICKHOUSE_DATABASE: tiktok
       REDIS_ADDR: redis:6379
-      DB_HOST: host.docker.internal
-      DB_PORT: "5432"
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: tiktok_analytics
-      DB_SSLMODE: disable
     depends_on:
-      postgres: {condition: service_healthy}
       kafka: {condition: service_healthy}
       clickhouse: {condition: service_healthy}
     networks: [tiktok_net]

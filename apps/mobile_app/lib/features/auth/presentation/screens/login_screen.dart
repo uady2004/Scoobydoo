@@ -16,17 +16,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey      = GlobalKey<FormState>();
   final _emailCtrl    = TextEditingController();
   final _passwordCtrl = TextEditingController();
-  bool  _loading      = false;
+  final _passwordFocus = FocusNode();
+  bool _loading = false;
 
   @override
   void dispose() {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
+  // Called when user taps Sign In
+  Future<void> _signIn() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
+
     setState(() => _loading = true);
     try {
       await ref.read(authProvider.notifier).login(
@@ -38,41 +43,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  void _showError(String message) {
+  void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFEE1D52),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg, style: const TextStyle(color: Colors.white)),
+          backgroundColor: const Color(0xFFEE1D52),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
+    // React to auth state changes
     ref.listen<AsyncValue<AuthState>>(authProvider, (_, next) {
-      next.whenData((s) {
-        if (s is AuthAuthenticated) {
+      next.whenData((state) {
+        if (state is AuthAuthenticated) {
           context.go('/home');
-        } else if (s is AuthError) {
-          _showError(s.message);
+        } else if (state is AuthError) {
+          _showError(state.message);
           ref.read(authProvider.notifier).clearError();
         }
       });
     });
 
-    // While the session is being restored, show a plain loading screen.
-    // The router's redirect will navigate away once auth state resolves.
+    // Show spinner while session is being restored on app launch
     final authValue = ref.watch(authProvider);
     if (authValue.isLoading) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(
-          child: CircularProgressIndicator(color: Color(0xFFEE1D52)),
-        ),
+        body: Center(child: CircularProgressIndicator(color: Color(0xFFEE1D52))),
       );
     }
 
@@ -81,65 +87,79 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.symmetric(horizontal: 28),
             child: Form(
               key: _formKey,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 32),
 
-                  // Logo
+                  // ── Logo ──────────────────────────────────────────────────
                   const Text(
                     'TikTok',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 44,
+                      fontSize: 46,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: -1.5,
+                      letterSpacing: -2,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
-                    'Sign in to continue',
+                    'Sign in to your account',
                     style: TextStyle(color: Colors.grey[500], fontSize: 14),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 40),
 
-                  // Email
+                  // ── Email ─────────────────────────────────────────────────
                   AuthTextField(
                     controller: _emailCtrl,
                     label: 'Email',
                     hint: 'you@example.com',
                     keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
                     prefixIcon: const Icon(Icons.email_outlined),
+                    enabled: !_loading,
+                    onSubmitted: (_) => _passwordFocus.requestFocus(),
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) return 'Email is required';
-                      if (!v.contains('@')) return 'Enter a valid email';
+                      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(v.trim())) {
+                        return 'Enter a valid email address';
+                      }
                       return null;
                     },
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
 
-                  // Password
+                  // ── Password ──────────────────────────────────────────────
                   AuthTextField(
                     controller: _passwordCtrl,
                     label: 'Password',
                     isPassword: true,
+                    focusNode: _passwordFocus,
+                    textInputAction: TextInputAction.done,
                     prefixIcon: const Icon(Icons.lock_outline),
+                    enabled: !_loading,
+                    onSubmitted: (_) => _signIn(),
                     validator: (v) {
                       if (v == null || v.isEmpty) return 'Password is required';
-                      if (v.length < 6) return 'At least 6 characters';
+                      if (v.length < 6) return 'Password must be at least 6 characters';
                       return null;
                     },
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
 
-                  // Forgot password
+                  // ── Forgot password ───────────────────────────────────────
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () => context.push('/forgot-password'),
+                      onPressed:
+                          _loading ? null : () => context.push('/forgot-password'),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 32),
+                      ),
                       child: const Text(
                         'Forgot password?',
                         style: TextStyle(
@@ -150,18 +170,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 28),
 
-                  // Sign In button
+                  // ── Sign In button ────────────────────────────────────────
                   SizedBox(
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton(
-                      onPressed: _loading ? null : _submit,
+                      onPressed: _loading ? null : _signIn,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEE1D52),
                         disabledBackgroundColor: Colors.grey[850],
                         foregroundColor: Colors.white,
+                        disabledForegroundColor: Colors.white54,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -181,36 +202,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
+                                letterSpacing: 0.3,
                               ),
                             ),
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 36),
 
-                  // Divider
+                  // ── Divider ───────────────────────────────────────────────
                   Row(children: [
                     Expanded(child: Divider(color: Colors.grey[800])),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text('or',
-                          style:
-                              TextStyle(color: Colors.grey[600], fontSize: 13)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Text(
+                        'or',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                      ),
                     ),
                     Expanded(child: Divider(color: Colors.grey[800])),
                   ]),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
 
-                  // Register link
+                  // ── Register link ─────────────────────────────────────────
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        "Don't have an account? ",
-                        style:
-                            TextStyle(color: Colors.grey[500], fontSize: 14),
+                        "Don't have an account?  ",
+                        style: TextStyle(color: Colors.grey[500], fontSize: 14),
                       ),
                       GestureDetector(
-                        onTap: () => context.push('/register'),
+                        onTap: _loading ? null : () => context.push('/register'),
                         child: const Text(
                           'Sign Up',
                           style: TextStyle(
@@ -222,7 +244,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
