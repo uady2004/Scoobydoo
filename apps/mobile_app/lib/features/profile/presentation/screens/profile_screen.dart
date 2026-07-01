@@ -564,7 +564,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         body: TabBarView(
           controller: _tabController,
           children: [
-            VideoGridTab(userId: userId, tab: VideoTab.posted),
+            VideoGridTab(userId: userId, tab: VideoTab.posted, isOwnProfile: _isOwnProfile),
             VideoGridTab(userId: userId, tab: VideoTab.liked),
             if (_isOwnProfile)
               VideoGridTab(userId: userId, tab: VideoTab.bookmarked),

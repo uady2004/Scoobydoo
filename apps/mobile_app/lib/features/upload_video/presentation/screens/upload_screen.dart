@@ -1,11 +1,16 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:camera/camera.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:tiktok_clone/core/network/api_client.dart';
+import 'package:tiktok_clone/features/auth/presentation/providers/auth_provider.dart';
+import 'package:tiktok_clone/features/profile/domain/usecases/get_user_videos_usecase.dart';
+import 'package:tiktok_clone/features/profile/presentation/providers/profile_provider.dart';
 
 const _kRed = Color(0xFFEE1D52);
 const _kSurface = Color(0xFF1C1C1E);
@@ -19,14 +24,14 @@ const List<String> _kSuggestedHashtags = [
 // Upload screen — exact TikTok camera UI
 // ---------------------------------------------------------------------------
 
-class UploadScreen extends StatefulWidget {
+class UploadScreen extends ConsumerStatefulWidget {
   const UploadScreen({super.key});
 
   @override
-  State<UploadScreen> createState() => _UploadScreenState();
+  ConsumerState<UploadScreen> createState() => _UploadScreenState();
 }
 
-class _UploadScreenState extends State<UploadScreen> {
+class _UploadScreenState extends ConsumerState<UploadScreen> {
   // Camera
   List<CameraDescription> _cameras = [];
   CameraController? _ctrl;
@@ -607,9 +612,9 @@ class _UploadScreenState extends State<UploadScreen> {
         Container(
           width: 88,
           height: 88,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            gradient: const SweepGradient(
+            gradient: SweepGradient(
               colors: [_kTeal, _kRed, _kTeal],
             ),
           ),
@@ -925,21 +930,71 @@ class _UploadScreenState extends State<UploadScreen> {
     );
   }
 
-  void _startUpload() {
+  Future<void> _startUpload() async {
     setState(() { _isUploading = true; _uploadProgress = 0; });
-    _uploadTimer = Timer.periodic(const Duration(milliseconds: 80), (t) {
+
+    // Animate progress up to 80% while the request is in-flight.
+    _uploadTimer = Timer.periodic(const Duration(milliseconds: 60), (t) {
       if (!mounted) { t.cancel(); return; }
-      if (_uploadProgress < 95) {
-        setState(() => _uploadProgress += 2);
+      if (_uploadProgress < 80) {
+        setState(() => _uploadProgress += 1.5);
       } else {
         t.cancel();
-        Future.delayed(const Duration(seconds: 1), () {
-          if (!mounted) return;
-          _snack('Posted! 🎉');
-          context.pop();
-        });
       }
     });
+
+    try {
+      final dio = ApiClient.instance.dio;
+      final caption = _captionCtrl.text.trim();
+      final hashtags = _hashtags.map((h) => '#$h').join(' ');
+      final description = [caption, if (hashtags.isNotEmpty) hashtags]
+          .where((s) => s.isNotEmpty)
+          .join(' ');
+
+      await dio.post<Map<String, dynamic>>(
+        '/videos',
+        data: {
+          'description': description,
+          'url': '',
+          'thumbnail_url': '',
+          'is_public': _isPublic,
+          'allow_comments': _allowComments,
+          'allow_duet': _allowDuet,
+          'allow_stitch': _allowStitch,
+        },
+      );
+
+      // Drive progress to 100%.
+      _uploadTimer?.cancel();
+      if (mounted) setState(() => _uploadProgress = 100);
+
+      // Refresh the current user's video grid.
+      final authState = ref.read(authProvider).valueOrNull;
+      if (authState is AuthAuthenticated) {
+        final userId = authState.user.id;
+        ref.invalidate(userVideosProvider(
+          (userId: userId, tab: VideoTab.posted),
+        ));
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (!mounted) return;
+      _snack('Posted successfully!');
+      context.pop();
+    } on DioException catch (e) {
+      _uploadTimer?.cancel();
+      if (!mounted) return;
+      setState(() { _isUploading = false; _uploadProgress = 0; });
+      final msg = e.response?.data is Map
+          ? (e.response!.data as Map)['error'] as String? ?? 'Upload failed'
+          : 'Upload failed';
+      _snack(msg);
+    } catch (_) {
+      _uploadTimer?.cancel();
+      if (!mounted) return;
+      setState(() { _isUploading = false; _uploadProgress = 0; });
+      _snack('Upload failed. Please try again.');
+    }
   }
 
   void _showVisibilitySheet() {
@@ -1522,9 +1577,9 @@ void _showLayoutsSheet() {
                 const Text('Sample questions:',
                     style: TextStyle(color: Colors.white54, fontSize: 12)),
                 const SizedBox(height: 8),
-                _QAQuestion('What camera do you use?'),
-                _QAQuestion('How long did this take?'),
-                _QAQuestion('Can you do a tutorial?'),
+                const _QAQuestion('What camera do you use?'),
+                const _QAQuestion('How long did this take?'),
+                const _QAQuestion('Can you do a tutorial?'),
               ],
               const SizedBox(height: 8),
             ],

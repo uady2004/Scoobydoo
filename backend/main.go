@@ -32,12 +32,19 @@ type User struct {
 }
 
 type Video struct {
-	ID          int    `json:"id"`
-	UserID      int    `json:"user_id"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Likes       int    `json:"likes"`
-	Views       int    `json:"views"`
+	ID            int    `json:"id"`
+	UserID        int    `json:"user_id"`
+	Description   string `json:"description"`
+	URL           string `json:"url"`
+	ThumbnailURL  string `json:"thumbnail_url"`
+	Likes         int    `json:"likes"`
+	Views         int    `json:"views"`
+	Comments      int    `json:"comments"`
+	IsPublic      bool   `json:"is_public"`
+	AllowComments bool   `json:"allow_comments"`
+	AllowDuet     bool   `json:"allow_duet"`
+	AllowStitch   bool   `json:"allow_stitch"`
+	CreatedAt     string `json:"created_at"`
 }
 
 var users []User
@@ -46,6 +53,7 @@ var userIDCounter = 1
 var videoIDCounter = 1
 
 const usersFile = "users.json"
+const videosFile = "videos.json"
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -55,6 +63,24 @@ func saveUsers() {
 		return
 	}
 	os.WriteFile(usersFile, data, 0644)
+}
+
+func saveVideos() {
+	data, _ := json.MarshalIndent(videos, "", "  ")
+	os.WriteFile(videosFile, data, 0644)
+}
+
+func loadVideos() {
+	data, err := os.ReadFile(videosFile)
+	if err != nil {
+		return
+	}
+	json.Unmarshal(data, &videos)
+	for _, v := range videos {
+		if v.ID >= videoIDCounter {
+			videoIDCounter = v.ID + 1
+		}
+	}
 }
 
 func loadUsers() {
@@ -121,6 +147,12 @@ func authMiddleware() gin.HandlerFunc {
 
 func formatProfile(u User) gin.H {
 	idStr := strconv.Itoa(u.ID)
+	videoCount := 0
+	for _, v := range videos {
+		if v.UserID == u.ID && v.IsPublic {
+			videoCount++
+		}
+	}
 	return gin.H{
 		"id":              idStr,
 		"user_id":         idStr,
@@ -133,12 +165,59 @@ func formatProfile(u User) gin.H {
 		"follower_count":  u.Followers,
 		"following_count": u.Following,
 		"like_count":      u.Likes,
-		"video_count":     0,
+		"video_count":     videoCount,
 		"is_verified":     u.IsVerified,
 		"is_creator":      false,
 		"is_private":      u.IsPrivate,
 		"is_following":    false,
 		"created_at":      time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func formatVideo(v Video) gin.H {
+	idStr := strconv.Itoa(v.ID)
+	username := ""
+	avatarURL := ""
+	for _, u := range users {
+		if u.ID == v.UserID {
+			username = u.Username
+			avatarURL = u.AvatarURL
+			break
+		}
+	}
+	createdAt := v.CreatedAt
+	if createdAt == "" {
+		createdAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	return gin.H{
+		"video_id":           idStr,
+		"id":                 idStr,
+		"video_url":          v.URL,
+		"thumbnail_url":      v.ThumbnailURL,
+		"hls_url":            "",
+		"description":        v.Description,
+		"title":              "",
+		"hashtags":           []string{},
+		"sound_title":        "Original Sound",
+		"sound_artist":       username,
+		"creator_id":         strconv.Itoa(v.UserID),
+		"creator_username":   username,
+		"creator_avatar_url": avatarURL,
+		"is_creator_verified": false,
+		"is_following":       false,
+		"like_count":         v.Likes,
+		"comment_count":      v.Comments,
+		"share_count":        0,
+		"bookmark_count":     0,
+		"view_count":         v.Views,
+		"is_liked":           false,
+		"is_bookmarked":      false,
+		"duration":           0,
+		"is_public":          v.IsPublic,
+		"allow_comments":     v.AllowComments,
+		"allow_duet":         v.AllowDuet,
+		"allow_stitch":       v.AllowStitch,
+		"created_at":         createdAt,
 	}
 }
 
@@ -345,12 +424,69 @@ func unfollowUser(c *gin.Context) {
 // ── Video handlers ────────────────────────────────────────────────────────────
 
 func uploadVideo(c *gin.Context) {
-	var req Video
+	userID, _ := c.Get("user_id")
+	uid := userID.(int)
+
+	var req struct {
+		Description   string `json:"description"`
+		URL           string `json:"url"`
+		ThumbnailURL  string `json:"thumbnail_url"`
+		IsPublic      bool   `json:"is_public"`
+		AllowComments bool   `json:"allow_comments"`
+		AllowDuet     bool   `json:"allow_duet"`
+		AllowStitch   bool   `json:"allow_stitch"`
+	}
 	c.ShouldBindJSON(&req)
-	req.ID = videoIDCounter
+
+	video := Video{
+		ID:            videoIDCounter,
+		UserID:        uid,
+		Description:   req.Description,
+		URL:           req.URL,
+		ThumbnailURL:  req.ThumbnailURL,
+		IsPublic:      req.IsPublic,
+		AllowComments: req.AllowComments,
+		AllowDuet:     req.AllowDuet,
+		AllowStitch:   req.AllowStitch,
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
 	videoIDCounter++
-	videos = append(videos, req)
-	c.JSON(201, req)
+	videos = append(videos, video)
+	saveVideos()
+	c.JSON(201, formatVideo(video))
+}
+
+func updateVideo(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid := userID.(int)
+	id, _ := strconv.Atoi(c.Param("id"))
+
+	var req struct {
+		Description   string `json:"description"`
+		IsPublic      bool   `json:"is_public"`
+		AllowComments bool   `json:"allow_comments"`
+		AllowDuet     bool   `json:"allow_duet"`
+		AllowStitch   bool   `json:"allow_stitch"`
+	}
+	c.ShouldBindJSON(&req)
+
+	for i, v := range videos {
+		if v.ID == id {
+			if v.UserID != uid {
+				c.JSON(403, gin.H{"error": "not your video"})
+				return
+			}
+			videos[i].Description = req.Description
+			videos[i].IsPublic = req.IsPublic
+			videos[i].AllowComments = req.AllowComments
+			videos[i].AllowDuet = req.AllowDuet
+			videos[i].AllowStitch = req.AllowStitch
+			saveVideos()
+			c.JSON(200, formatVideo(videos[i]))
+			return
+		}
+	}
+	c.JSON(404, gin.H{"error": "video not found"})
 }
 
 func getFeed(c *gin.Context) {
@@ -372,7 +508,8 @@ func likeVideo(c *gin.Context) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 func main() {
-	loadUsers() // ← load saved users on startup
+	loadUsers()  // ← load saved users on startup
+	loadVideos() // ← load saved videos on startup
 
 	r := gin.Default()
 
@@ -444,9 +581,34 @@ func main() {
 	authV1.GET("/users/:id/following", func(c *gin.Context) {
 		c.JSON(200, gin.H{"data": []interface{}{}, "next_cursor": nil})
 	})
+	authV1.GET("/users/:id/videos", func(c *gin.Context) {
+		id, _ := strconv.Atoi(c.Param("id"))
+		var result []gin.H
+		for _, v := range videos {
+			if v.UserID == id {
+				result = append(result, formatVideo(v))
+			}
+		}
+		if result == nil {
+			result = []gin.H{}
+		}
+		c.JSON(200, gin.H{"data": result, "next_cursor": nil})
+	})
 	authV1.GET("/feed", getFeed)
 	authV1.GET("/feed/for-you", getFeed)
 	authV1.POST("/feed/view", func(c *gin.Context) { c.JSON(200, gin.H{"message": "ok"}) })
+	authV1.POST("/videos", uploadVideo)
+	authV1.PUT("/videos/:id", updateVideo)
+	authV1.GET("/videos/:id", func(c *gin.Context) {
+		id, _ := strconv.Atoi(c.Param("id"))
+		for _, v := range videos {
+			if v.ID == id {
+				c.JSON(200, formatVideo(v))
+				return
+			}
+		}
+		c.JSON(404, gin.H{"error": "video not found"})
+	})
 	authV1.POST("/videos/:id/like", likeVideo)
 	authV1.GET("/videos/:id/like-status", func(c *gin.Context) { c.JSON(200, gin.H{"is_liked": false}) })
 	authV1.POST("/videos/:id/bookmark", func(c *gin.Context) { c.JSON(200, gin.H{"is_bookmarked": true}) })
@@ -503,7 +665,17 @@ func main() {
 		c.JSON(200, gin.H{"data": []interface{}{}, "next_cursor": nil})
 	})
 	auth.GET("/users/:id/videos", func(c *gin.Context) {
-		c.JSON(200, gin.H{"data": []interface{}{}, "next_cursor": nil})
+		id, _ := strconv.Atoi(c.Param("id"))
+		var result []gin.H
+		for _, v := range videos {
+			if v.UserID == id {
+				result = append(result, formatVideo(v))
+			}
+		}
+		if result == nil {
+			result = []gin.H{}
+		}
+		c.JSON(200, gin.H{"data": result, "next_cursor": nil})
 	})
 
 	// Feed
@@ -520,8 +692,16 @@ func main() {
 	auth.POST("/videos", uploadVideo)
 	auth.POST("/api/videos", uploadVideo)
 	auth.GET("/videos/:id", func(c *gin.Context) {
-		c.JSON(200, gin.H{"id": c.Param("id")})
+		id, _ := strconv.Atoi(c.Param("id"))
+		for _, v := range videos {
+			if v.ID == id {
+				c.JSON(200, formatVideo(v))
+				return
+			}
+		}
+		c.JSON(404, gin.H{"error": "video not found"})
 	})
+	auth.PUT("/videos/:id", updateVideo)
 	auth.POST("/videos/:id/like", likeVideo)
 	auth.GET("/videos/:id/like-status", func(c *gin.Context) {
 		c.JSON(200, gin.H{"is_liked": false})
