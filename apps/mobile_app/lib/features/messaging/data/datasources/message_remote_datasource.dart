@@ -72,16 +72,18 @@ class MessageRemoteDataSourceImpl implements MessageRemoteDataSource {
     String? cursor,
   }) async {
     final response = await _dio.get<Map<String, dynamic>>(
-      '/messages',
+      '/conversations/$conversationId/messages',
       queryParameters: {
-        'conversation_id': conversationId,
         if (cursor != null) 'cursor': cursor,
       },
     );
     final data = response.data!;
-    final items = (data['data'] as List<dynamic>)
-        .map((e) => MessageModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final raw = (data['data'] as List<dynamic>? ?? []);
+    final items = raw.map((e) {
+      final m = Map<String, dynamic>.from(e as Map<String, dynamic>);
+      m['conversation_id'] = conversationId;
+      return MessageModel.fromJson(m);
+    }).toList();
     final nextCursor = data['next_cursor'] as String?;
     return (items, nextCursor);
   }
@@ -95,16 +97,17 @@ class MessageRemoteDataSourceImpl implements MessageRemoteDataSource {
     String? mediaUrl,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
-      '/messages',
+      '/conversations/$conversationId/messages',
       data: {
-        'conversation_id': conversationId,
         'content': content,
         'type': type.name,
         if (replyToId != null) 'reply_to_id': replyToId,
         if (mediaUrl != null) 'media_url': mediaUrl,
       },
     );
-    return MessageModel.fromJson(response.data!);
+    final m = Map<String, dynamic>.from(response.data!);
+    m['conversation_id'] = conversationId;
+    return MessageModel.fromJson(m);
   }
 
   @override
@@ -127,10 +130,7 @@ class MessageRemoteDataSourceImpl implements MessageRemoteDataSource {
 
   @override
   Future<void> markRead(String conversationId) async {
-    await _dio.post<void>(
-      '/messages/read',
-      data: {'conversation_id': conversationId},
-    );
+    await _dio.put<void>('/conversations/$conversationId/read');
   }
 
   @override

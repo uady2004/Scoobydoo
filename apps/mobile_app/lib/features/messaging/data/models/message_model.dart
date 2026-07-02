@@ -33,12 +33,16 @@ class MessageModel {
   });
 
   factory MessageModel.fromJson(Map<String, dynamic> json) {
+    final sender = json['sender'] as Map<String, dynamic>?;
     return MessageModel(
-      id: json['id'] as String,
-      conversationId: json['conversation_id'] as String,
-      senderId: json['sender_id'] as String,
-      senderUsername: json['sender_username'] as String,
-      senderAvatarUrl: json['sender_avatar_url'] as String?,
+      id: json['id'] as String? ?? '',
+      conversationId: json['conversation_id'] as String? ?? '',
+      senderId: json['sender_id'] as String? ??
+          sender?['id'] as String? ?? '',
+      senderUsername: json['sender_username'] as String? ??
+          sender?['username'] as String? ?? '',
+      senderAvatarUrl: json['sender_avatar_url'] as String? ??
+          sender?['avatar_url'] as String?,
       content: json['content'] as String? ?? '',
       type: _parseMessageType(json['type'] as String? ?? 'text'),
       mediaUrl: json['media_url'] as String?,
@@ -49,7 +53,9 @@ class MessageModel {
       replyToContent: json['reply_to_content'] as String?,
       reactions: (json['reactions'] as Map<String, dynamic>? ?? {})
           .map((k, v) => MapEntry(k, (v as num).toInt())),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'] as String)
+          : DateTime.now(),
     );
   }
 
@@ -129,13 +135,45 @@ class ConversationModel {
   });
 
   factory ConversationModel.fromJson(Map<String, dynamic> json) {
+    final partner = json['partner'] as Map<String, dynamic>?;
+    if (partner != null) {
+      // Backend DM format: {id, updated_at, partner: {id, username, avatar_url, display_name}, last_message: "string"}
+      final lastMsgStr = json['last_message'] as String?;
+      return ConversationModel(
+        id: json['id'] as String,
+        participants: [partner],
+        lastMessage: lastMsgStr != null
+            ? MessageModel(
+                id: '',
+                conversationId: json['id'] as String,
+                senderId: partner['id'] as String? ?? '',
+                senderUsername: partner['username'] as String? ?? '',
+                content: lastMsgStr,
+                type: MessageType.text,
+                reactions: {},
+                createdAt: json['updated_at'] != null
+                    ? DateTime.parse(json['updated_at'] as String)
+                    : DateTime.now(),
+              )
+            : null,
+        lastMessageAt: json['updated_at'] != null
+            ? DateTime.parse(json['updated_at'] as String)
+            : null,
+        unreadCount: 0,
+        isGroup: false,
+        groupName: null,
+        groupAvatarUrl: null,
+      );
+    }
     return ConversationModel(
       id: json['id'] as String,
       participants: (json['participants'] as List<dynamic>? ?? [])
           .map((p) => p as Map<String, dynamic>)
           .toList(),
-      lastMessage: json['last_message'] != null
-          ? MessageModel.fromJson(json['last_message'] as Map<String, dynamic>)
+      lastMessage: json['last_message'] != null &&
+              json['last_message'] is Map<String, dynamic>
+          ? MessageModel.fromJson(
+              json['last_message'] as Map<String, dynamic>)
           : null,
       lastMessageAt: json['last_message_at'] != null
           ? DateTime.parse(json['last_message_at'] as String)

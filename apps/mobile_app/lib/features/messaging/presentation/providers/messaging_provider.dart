@@ -8,6 +8,11 @@ import 'package:tiktok_clone/features/messaging/domain/usecases/get_conversation
 import 'package:tiktok_clone/features/messaging/domain/usecases/get_messages_usecase.dart';
 import 'package:tiktok_clone/features/messaging/domain/usecases/send_message_usecase.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:tiktok_clone/core/network/api_client.dart';
+import 'package:tiktok_clone/features/auth/presentation/providers/auth_provider.dart';
+import 'package:tiktok_clone/features/messaging/data/datasources/message_remote_datasource.dart';
+import 'package:tiktok_clone/features/messaging/data/repositories/message_repository_impl.dart';
+import 'package:tiktok_clone/features/messaging/domain/repositories/message_repository.dart';
 
 // ---------------------------------------------------------------------------
 // WebSocketService
@@ -71,23 +76,28 @@ final webSocketServiceProvider = Provider<WebSocketService>((ref) {
   return service;
 });
 
-// Expose use-cases via providers (wired from DI in app bootstrap).
-// These are overridden at ProviderScope level in main.dart.
+final _messageDatasourceProvider = Provider<MessageRemoteDataSource>((ref) =>
+    MessageRemoteDataSourceImpl(ApiClient.instance.dio));
+
+final _messageRepoProvider = Provider<MessageRepository>((ref) =>
+    MessageRepositoryImpl(ref.watch(_messageDatasourceProvider)));
+
 final getConversationsUseCaseProvider =
-    Provider<GetConversationsUseCase>((ref) {
-  throw UnimplementedError('Override getConversationsUseCaseProvider');
-});
+    Provider<GetConversationsUseCase>((ref) =>
+        GetConversationsUseCase(ref.watch(_messageRepoProvider)));
 
-final getMessagesUseCaseProvider = Provider<GetMessagesUseCase>((ref) {
-  throw UnimplementedError('Override getMessagesUseCaseProvider');
-});
+final getMessagesUseCaseProvider = Provider<GetMessagesUseCase>((ref) =>
+    GetMessagesUseCase(ref.watch(_messageRepoProvider)));
 
-final sendMessageUseCaseProvider = Provider<SendMessageUseCase>((ref) {
-  throw UnimplementedError('Override sendMessageUseCaseProvider');
-});
+final sendMessageUseCaseProvider = Provider<SendMessageUseCase>((ref) =>
+    SendMessageUseCase(ref.watch(_messageRepoProvider)));
 
-// Current authenticated user id — override at ProviderScope.
-final currentUserIdProvider = Provider<String>((ref) => '');
+final currentUserIdProvider = Provider<String>((ref) {
+  final authAsync = ref.watch(authProvider);
+  final authState = authAsync.valueOrNull;
+  if (authState is AuthAuthenticated) return authState.user.id;
+  return '';
+});
 
 // ---------------------------------------------------------------------------
 // InboxNotifier

@@ -387,6 +387,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tiktok_clone/core/network/api_client.dart';
 import 'package:tiktok_clone/features/messaging/domain/entities/conversation_entity.dart';
 import 'package:tiktok_clone/features/messaging/domain/entities/message_entity.dart';
 import 'package:tiktok_clone/features/messaging/presentation/providers/messaging_provider.dart';
@@ -409,6 +410,27 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     super.dispose();
   }
 
+  Future<void> _showNewConversationDialog() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1A1A1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _NewConversationSheet(
+        onConversationCreated: (convId, username) {
+          if (mounted) {
+            context.push(
+              '/inbox/chat/$convId',
+              extra: {'displayName': username, 'avatarUrl': null, 'isOnline': false},
+            );
+          }
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final inboxAsync = ref.watch(inboxProvider);
@@ -416,6 +438,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
 
     return Scaffold(
       backgroundColor: Colors.black,
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: const Color(0xFFFE2C55),
+        onPressed: _showNewConversationDialog,
+        child: const Icon(Icons.edit_outlined, color: Colors.white),
+      ),
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
@@ -927,6 +954,208 @@ class _EmptyState extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// New conversation bottom sheet
+// ---------------------------------------------------------------------------
+
+class _NewConversationSheet extends ConsumerStatefulWidget {
+  final void Function(String convId, String username) onConversationCreated;
+
+  const _NewConversationSheet({required this.onConversationCreated});
+
+  @override
+  ConsumerState<_NewConversationSheet> createState() =>
+      _NewConversationSheetState();
+}
+
+class _NewConversationSheetState
+    extends ConsumerState<_NewConversationSheet> {
+  final _ctrl = TextEditingController();
+  List<Map<String, dynamic>> _results = [];
+  bool _loading = false;
+  bool _creating = false;
+  String _error = '';
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search(String q) async {
+    if (q.trim().isEmpty) {
+      setState(() { _results = []; _error = ''; });
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final resp = await ApiClient.instance.dio
+          .get<Map<String, dynamic>>('/search', queryParameters: {'q': q.trim(), 'type': 'user'});
+      final data = resp.data?['data'] as List<dynamic>? ?? [];
+      setState(() {
+        _results = data.map((e) => e as Map<String, dynamic>).toList();
+        _error = '';
+      });
+    } catch (e) {
+      setState(() => _error = 'Search failed');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _startConversation(Map<String, dynamic> user) async {
+    setState(() => _creating = true);
+    try {
+      final userId = int.tryParse(user['user_id'] as String? ?? user['id'] as String? ?? '0') ?? 0;
+      final resp = await ApiClient.instance.dio.post<Map<String, dynamic>>(
+        '/conversations',
+        data: {'user_id': userId},
+      );
+      final convId = resp.data?['id'] as String? ?? '';
+      final username = user['username'] as String? ?? 'Unknown';
+      if (mounted) Navigator.of(context).pop();
+      widget.onConversationCreated(convId, username);
+    } catch (_) {
+      setState(() { _creating = false; _error = 'Could not start conversation'; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'New Message',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _ctrl,
+              autofocus: true,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Search users...',
+                hintStyle: const TextStyle(color: Colors.white38),
+                filled: true,
+                fillColor: const Color(0xFF2A2A2A),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                prefixIcon: const Icon(Icons.search,
+                    color: Colors.white38),
+                suffixIcon: _loading
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFFFE2C55),
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+              onChanged: _search,
+            ),
+          ),
+          if (_error.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 8),
+              child: Text(_error,
+                  style: const TextStyle(
+                      color: Colors.redAccent, fontSize: 13)),
+            ),
+          const SizedBox(height: 8),
+          if (_results.isEmpty && !_loading && _ctrl.text.isNotEmpty)
+            const Padding(
+              padding:
+                  EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Text(
+                'No users found',
+                style: TextStyle(color: Colors.white54, fontSize: 14),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight:
+                    MediaQuery.of(context).size.height * 0.4,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _results.length,
+                itemBuilder: (context, index) {
+                  final u = _results[index];
+                  final username =
+                      u['username'] as String? ?? 'Unknown';
+                  final avatarUrl = u['avatar_url'] as String?;
+                  final displayName =
+                      u['display_name'] as String? ?? username;
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFF2A2A2A),
+                      backgroundImage: avatarUrl != null
+                          ? NetworkImage(avatarUrl)
+                          : null,
+                      child: avatarUrl == null
+                          ? Text(
+                              username.isNotEmpty
+                                  ? username[0].toUpperCase()
+                                  : '?',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold),
+                            )
+                          : null,
+                    ),
+                    title: Text(
+                      displayName,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      '@$username',
+                      style: const TextStyle(
+                          color: Colors.white54, fontSize: 12),
+                    ),
+                    onTap: _creating ? null : () => _startConversation(u),
+                  );
+                },
+              ),
+            ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }

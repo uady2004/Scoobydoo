@@ -1459,13 +1459,114 @@ func registerRoutes(g *gin.RouterGroup) {
 	g.PUT("/notifications/:id/read", markNotificationRead)
 	g.PUT("/notifications/read-all", markAllNotificationsRead)
 
-	// Search (stub — no search engine yet)
-	g.GET("/search", func(c *gin.Context) { c.JSON(200, gin.H{"data": []any{}}) })
-	g.GET("/search/trending", func(c *gin.Context) {
-		c.JSON(200, gin.H{"data": []string{"fyp", "trending", "viral"}})
+	// Search — real DB queries
+	g.GET("/search", func(c *gin.Context) {
+		uid := c.MustGet("user_id").(int)
+		q := strings.TrimSpace(c.Query("q"))
+		searchType := c.Query("type")
+		if q == "" {
+			c.JSON(200, gin.H{"data": []gin.H{}, "next_cursor": nil})
+			return
+		}
+		pattern := "%" + strings.ToLower(q) + "%"
+		var result []gin.H
+
+		// User search
+		if searchType == "" || searchType == "user" {
+			rows, err := db.Query(`
+				SELECT id, username, display_name, avatar_url, is_verified, followers, following
+				FROM users
+				WHERE LOWER(username) LIKE $1 OR LOWER(display_name) LIKE $1
+				ORDER BY followers DESC LIMIT 20`, pattern)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var id, followers, following int
+					var username, displayName, avatarURL string
+					var isVerified bool
+					if err := rows.Scan(&id, &username, &displayName, &avatarURL, &isVerified, &followers, &following); err == nil {
+						result = append(result, gin.H{
+							"result_type":     "user",
+							"id":              strconv.Itoa(id),
+							"user_id":         strconv.Itoa(id),
+							"username":        username,
+							"display_name":    displayName,
+							"avatar_url":      avatarURL,
+							"is_verified":     isVerified,
+							"follower_count":  followers,
+							"following_count": following,
+						})
+					}
+				}
+			}
+		}
+
+		// Video search
+		if searchType == "" || searchType == "video" {
+			videoRows, err := db.Query(`
+				SELECT `+videoSelectCols+`
+				FROM videos v JOIN users u ON u.id = v.user_id
+				WHERE v.is_public = TRUE AND LOWER(v.description) LIKE $1
+				ORDER BY v.likes DESC, v.created_at DESC LIMIT 20`, pattern)
+			if err == nil {
+				defer videoRows.Close()
+				for videoRows.Next() {
+					v, username, avatarURL, err := scanVideoRow(videoRows)
+					if err == nil {
+						vf := formatVideo(v, username, avatarURL, uid)
+						vf["result_type"] = "video"
+						result = append(result, vf)
+					}
+				}
+			}
+		}
+
+		if result == nil {
+			result = []gin.H{}
+		}
+		c.JSON(200, gin.H{"data": result, "next_cursor": nil})
 	})
-	g.GET("/search/suggestions", func(c *gin.Context) { c.JSON(200, gin.H{"data": []any{}}) })
-	g.GET("/search/history", func(c *gin.Context) { c.JSON(200, gin.H{"data": []any{}}) })
+	g.GET("/search/trending", func(c *gin.Context) {
+		rows, _ := db.Query(`SELECT username FROM users ORDER BY followers DESC LIMIT 10`)
+		var tags []string
+		if rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var u string
+				if rows.Scan(&u) == nil {
+					tags = append(tags, u)
+				}
+			}
+		}
+		if len(tags) == 0 {
+			tags = []string{"fyp", "trending", "viral"}
+		}
+		c.JSON(200, gin.H{"data": tags})
+	})
+	g.GET("/search/suggestions", func(c *gin.Context) {
+		q := strings.TrimSpace(c.Query("q"))
+		if q == "" {
+			c.JSON(200, gin.H{"suggestions": []string{}})
+			return
+		}
+		pattern := strings.ToLower(q) + "%"
+		rows, _ := db.Query(`SELECT username FROM users WHERE LOWER(username) LIKE $1 LIMIT 8`, pattern)
+		var suggestions []string
+		if rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var u string
+				if rows.Scan(&u) == nil {
+					suggestions = append(suggestions, u)
+				}
+			}
+		}
+		if suggestions == nil {
+			suggestions = []string{}
+		}
+		c.JSON(200, gin.H{"suggestions": suggestions})
+	})
+	g.GET("/search/history", func(c *gin.Context) { c.JSON(200, gin.H{"data": []string{}, "history": []string{}}) })
 	g.POST("/search/history", func(c *gin.Context) { c.JSON(200, gin.H{"message": "saved"}) })
 	g.DELETE("/search/history", func(c *gin.Context) { c.JSON(200, gin.H{"message": "cleared"}) })
 

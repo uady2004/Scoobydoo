@@ -3,9 +3,25 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../home_feed/data/models/feed_item_model.dart';
 import '../../../home_feed/domain/entities/feed_item_entity.dart';
 import '../../../home_feed/presentation/providers/feed_provider.dart';
+import '../../../../core/network/api_client.dart';
 import '../widgets/tiktok_video_player.dart';
+
+final videoByIdProvider =
+    FutureProvider.family<FeedItemEntity?, String>((ref, videoId) async {
+  try {
+    final resp = await ApiClient.instance.dio.get<Map<String, dynamic>>(
+      '/videos/$videoId',
+    );
+    final data = resp.data;
+    if (data == null) return null;
+    return FeedItemModel.fromJson(data);
+  } catch (_) {
+    return null;
+  }
+});
 
 class VideoPlayerScreen extends ConsumerStatefulWidget {
   const VideoPlayerScreen({super.key, required this.videoId});
@@ -47,13 +63,30 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final item = _findCached();
+    final cached = _findCached();
+    if (cached != null) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: _VideoBody(item: cached),
+      );
+    }
 
+    final asyncItem = ref.watch(videoByIdProvider(widget.videoId));
     return Scaffold(
       backgroundColor: Colors.black,
-      body: item != null
-          ? _VideoBody(item: item)
-          : _NotFoundBody(videoId: widget.videoId),
+      body: asyncItem.when(
+        loading: () => const Center(
+          child: CircularProgressIndicator(
+            valueColor:
+                AlwaysStoppedAnimation(Color(0xFFEE1D52)),
+            strokeWidth: 2,
+          ),
+        ),
+        error: (_, __) => _NotFoundBody(videoId: widget.videoId),
+        data: (item) => item != null
+            ? _VideoBody(item: item)
+            : _NotFoundBody(videoId: widget.videoId),
+      ),
     );
   }
 }
