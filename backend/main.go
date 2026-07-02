@@ -1410,23 +1410,26 @@ func registerRoutes(g *gin.RouterGroup) {
 	g.GET("/videos/:id", func(c *gin.Context) {
 		uid := c.MustGet("user_id").(int)
 		id, _ := strconv.Atoi(c.Param("id"))
-		var v Video
-		err := db.QueryRow(
-			`SELECT v.id, v.user_id, v.description, v.url, v.thumbnail_url,
-			        v.likes, v.views, v.comments, v.is_public, v.allow_comments,
-			        v.allow_duet, v.allow_stitch, v.created_at
-			 FROM videos v WHERE v.id = $1`, id,
-		).Scan(
-			&v.ID, &v.UserID, &v.Description, &v.URL, &v.ThumbnailURL,
-			&v.Likes, &v.Views, &v.Comments, &v.IsPublic,
-			&v.AllowComments, &v.AllowDuet, &v.AllowStitch, &v.CreatedAt,
+		rows, err := db.Query(
+			`SELECT `+videoSelectCols+`
+			 FROM videos v JOIN users u ON u.id = v.user_id
+			 WHERE v.id = $1`, id,
 		)
-		if err == sql.ErrNoRows {
+		if err != nil {
+			c.JSON(500, gin.H{"error": "query failed"})
+			return
+		}
+		defer rows.Close()
+		if !rows.Next() {
 			c.JSON(404, gin.H{"error": "video not found"})
 			return
 		}
-		u, _ := getUserByID(v.UserID)
-		c.JSON(200, formatVideo(v, u.Username, u.AvatarURL, uid))
+		v, username, avatarURL, err := scanVideoRow(rows)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "scan failed"})
+			return
+		}
+		c.JSON(200, formatVideo(v, username, avatarURL, uid))
 	})
 	g.POST("/videos/:id/like", likeVideo)
 	g.GET("/videos/:id/like-status", func(c *gin.Context) {

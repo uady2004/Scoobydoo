@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:dio/dio.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:tiktok_clone/core/network/api_client.dart';
+import 'package:tiktok_clone/core/services/cloudinary_service.dart';
 import 'package:tiktok_clone/features/auth/presentation/providers/auth_provider.dart';
 import 'package:tiktok_clone/features/profile/domain/usecases/get_user_videos_usecase.dart';
 import 'package:tiktok_clone/features/profile/presentation/providers/profile_provider.dart';
@@ -37,6 +39,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   CameraController? _ctrl;
   bool _ready = false;
   bool _isFront = false;
+  String? _cameraError;
   bool _isRecording = false;
   bool _isCountingDown = false;
   int _countdown = 0;
@@ -92,9 +95,14 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   Future<void> _initCamera() async {
     try {
       _cameras = await availableCameras();
-      if (_cameras.isEmpty) return;
+      if (_cameras.isEmpty) {
+        if (mounted) setState(() => _cameraError = 'No cameras found on this device');
+        return;
+      }
       await _setupCamera(_cameras.first);
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) setState(() => _cameraError = e.toString());
+    }
   }
 
   Future<void> _setupCamera(CameraDescription cam) async {
@@ -103,8 +111,18 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       await c.initialize();
       _minZoom = await c.getMinZoomLevel();
       _maxZoom = await c.getMaxZoomLevel();
-      if (mounted) setState(() { _ctrl?.dispose(); _ctrl = c; _ready = true; });
-    } catch (_) { c.dispose(); }
+      if (mounted) {
+        setState(() {
+          _ctrl?.dispose();
+          _ctrl = c;
+          _ready = true;
+          _cameraError = null;
+        });
+      }
+    } catch (e) {
+      c.dispose();
+      if (mounted) setState(() => _cameraError = e.toString());
+    }
   }
 
   Future<void> _flipCamera() async {
@@ -136,6 +154,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   }
 
   void _onRecordTap() {
+    if (_duration == 'TEXT') { _snack('Text posts coming soon'); return; }
     if (_duration == 'PHOTO') { _takePhoto(); return; }
     if (_isCountingDown) { _cancelCountdown(); return; }
     if (_isRecording) { _stopRec(); return; }
@@ -212,6 +231,12 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   double get _recLimit =>
       _duration == '15s' ? 15.0 : _duration == '60s' ? 60.0 : 600.0;
 
+  static bool _isVideoFile(String path) {
+    final p = path.toLowerCase();
+    return p.endsWith('.mp4') || p.endsWith('.mov') ||
+        p.endsWith('.avi') || p.endsWith('.mkv');
+  }
+
   String get _timeStr {
     final s = _recordSecs.toInt();
     return '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
@@ -227,6 +252,49 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   // CAMERA SCREEN — exact TikTok layout
   // ---------------------------------------------------------------------------
 
+  Widget _buildCameraErrorOverlay() {
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.no_photography_outlined,
+                  color: Colors.white38, size: 64),
+              const SizedBox(height: 16),
+              const Text('Camera unavailable',
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              const SizedBox(height: 8),
+              Text(
+                _cameraError ?? '',
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              TextButton.icon(
+                onPressed: () {
+                  setState(() => _cameraError = null);
+                  _initCamera();
+                },
+                icon: const Icon(Icons.refresh, color: _kRed),
+                label: const Text('Try again',
+                    style: TextStyle(color: _kRed)),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: _pickGallery,
+                child: const Text('Pick from gallery',
+                    style: TextStyle(color: Colors.white70)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCamera() {
     return Scaffold(
       backgroundColor: Colors.black,
@@ -239,6 +307,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
             // ── Camera preview ──────────────────────────────────────────
             if (_ready && _ctrl != null)
               CameraPreview(_ctrl!)
+            else if (_cameraError != null)
+              _buildCameraErrorOverlay()
             else
               const ColoredBox(color: Colors.black),
 
@@ -744,11 +814,22 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Container(
+                      child: SizedBox(
                         width: 80, height: 106,
-                        color: const Color(0xFF2A2A2A),
-                        child: const Icon(Icons.play_circle_fill,
-                            color: Colors.white38, size: 36),
+                        child: _captured != null
+                            ? _isVideoFile(_captured!.path)
+                                ? Stack(fit: StackFit.expand, children: [
+                                    ColoredBox(color: Colors.black),
+                                    Center(
+                                      child: Icon(Icons.play_circle_fill,
+                                          color: Colors.white70, size: 36),
+                                    ),
+                                  ])
+                                : Image.file(
+                                    File(_captured!.path),
+                                    fit: BoxFit.cover,
+                                  )
+                            : const ColoredBox(color: Color(0xFF2A2A2A)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -931,32 +1012,45 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   }
 
   Future<void> _startUpload() async {
+    if (_captured == null) return;
     setState(() { _isUploading = true; _uploadProgress = 0; });
 
-    // Animate progress up to 80% while the request is in-flight.
-    _uploadTimer = Timer.periodic(const Duration(milliseconds: 60), (t) {
-      if (!mounted) { t.cancel(); return; }
-      if (_uploadProgress < 80) {
-        setState(() => _uploadProgress += 1.5);
-      } else {
-        t.cancel();
-      }
-    });
-
     try {
-      final dio = ApiClient.instance.dio;
+      String mediaUrl = '';
+      String thumbnailUrl = '';
+
+      if (CloudinaryService.isConfigured) {
+        // Step 1: upload media file to Cloudinary (real progress 0→85%)
+        final result = await CloudinaryService.uploadFile(
+          _captured!,
+          onSendProgress: (sent, total) {
+            if (mounted && total > 0) {
+              setState(() => _uploadProgress = (sent / total * 85).clamp(0, 85));
+            }
+          },
+        );
+        mediaUrl = result.url;
+        thumbnailUrl = result.thumbnailUrl;
+        if (mounted) setState(() => _uploadProgress = 90);
+      } else {
+        // Cloudinary not configured — post metadata only; profile will show
+        // a placeholder until Cloudinary is set up.
+        if (mounted) setState(() => _uploadProgress = 50);
+      }
+
+      // Step 2: save video metadata to backend
       final caption = _captionCtrl.text.trim();
       final hashtags = _hashtags.map((h) => '#$h').join(' ');
       final description = [caption, if (hashtags.isNotEmpty) hashtags]
           .where((s) => s.isNotEmpty)
           .join(' ');
 
-      await dio.post<Map<String, dynamic>>(
+      await ApiClient.instance.dio.post<Map<String, dynamic>>(
         '/videos',
         data: {
           'description': description,
-          'url': '',
-          'thumbnail_url': '',
+          'url': mediaUrl,
+          'thumbnail_url': thumbnailUrl,
           'is_public': _isPublic,
           'allow_comments': _allowComments,
           'allow_duet': _allowDuet,
@@ -964,36 +1058,36 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
         },
       );
 
-      // Drive progress to 100%.
-      _uploadTimer?.cancel();
       if (mounted) setState(() => _uploadProgress = 100);
 
       // Refresh the current user's video grid.
       final authState = ref.read(authProvider).valueOrNull;
       if (authState is AuthAuthenticated) {
-        final userId = authState.user.id;
         ref.invalidate(userVideosProvider(
-          (userId: userId, tab: VideoTab.posted),
+          (userId: authState.user.id, tab: VideoTab.posted),
         ));
       }
 
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
-      _snack('Posted successfully!');
+
+      if (!CloudinaryService.isConfigured) {
+        _snack('Posted (no media — configure Cloudinary to store videos)');
+      } else {
+        _snack('Posted successfully!');
+      }
       context.pop();
     } on DioException catch (e) {
-      _uploadTimer?.cancel();
       if (!mounted) return;
       setState(() { _isUploading = false; _uploadProgress = 0; });
       final msg = e.response?.data is Map
           ? (e.response!.data as Map)['error'] as String? ?? 'Upload failed'
           : 'Upload failed';
       _snack(msg);
-    } catch (_) {
-      _uploadTimer?.cancel();
+    } catch (e) {
       if (!mounted) return;
       setState(() { _isUploading = false; _uploadProgress = 0; });
-      _snack('Upload failed. Please try again.');
+      _snack('Upload failed: ${e.toString().split('\n').first}');
     }
   }
 
